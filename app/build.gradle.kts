@@ -9,6 +9,13 @@ android {
     namespace = "com.example.chessmentor"
     compileSdk = 34
 
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1" // Или какая у вас установлена
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.chessmentor"
         minSdk = 26
@@ -16,6 +23,11 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+            }
+        }
     }
 
     buildTypes {
@@ -37,6 +49,12 @@ android {
 
     buildFeatures {
         compose = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     // В Kotlin 2.0 + Compose Plugin блок composeOptions с версией компилятора НЕ НУЖЕН

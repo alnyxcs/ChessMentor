@@ -12,7 +12,7 @@ import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.entity.Exercise
 import com.example.chessmentor.domain.entity.ExerciseAttempt
 import com.example.chessmentor.data.local.dao.ExerciseDao
-
+import com.example.chessmentor.data.engine.StockfishEngine
 import com.example.chessmentor.data.repository.room.RoomExerciseRepository
 import com.example.chessmentor.domain.usecase.*
 
@@ -57,10 +57,6 @@ class AppContainer(context: Context) { // <-- Принимаем Context
         UploadGameUseCase(gameRepository, userRepository)
     }
 
-    val analyzeGameUseCase: AnalyzeGameUseCase by lazy {
-        AnalyzeGameUseCase(gameRepository, mistakeRepository, userRepository)
-    }
-
     val getUserStatisticsUseCase: GetUserStatisticsUseCase by lazy {
         GetUserStatisticsUseCase(userRepository, gameRepository, mistakeRepository)
     }
@@ -71,6 +67,21 @@ class AppContainer(context: Context) { // <-- Принимаем Context
                 mistakeRepository,
                 exerciseRepository
             )
+    }
+
+    // Движок (Process)
+    val stockfishProcess: StockfishProcess by lazy {
+        StockfishProcess(context) // context доступен в AppContainer
+    }
+
+    // UseCase с движком
+    val analyzeGameUseCase: AnalyzeGameUseCase by lazy {
+        AnalyzeGameUseCase(
+            gameRepository,
+            mistakeRepository,
+            userRepository,
+            stockfishProcess // <-- ПЕРЕДАЕМ ДВИЖОК
+        )
     }
     companion object {
         @Volatile
