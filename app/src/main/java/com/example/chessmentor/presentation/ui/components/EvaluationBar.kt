@@ -86,7 +86,7 @@ fun EvaluationBar(
 /**
  * Форматирование оценки для отображения
  */
-private fun formatEvaluation(evaluation: Int): String {
+fun formatEvaluation(evaluation: Int): String {
     return when {
         abs(evaluation) >= 100000 -> "M" // Мат
         else -> {

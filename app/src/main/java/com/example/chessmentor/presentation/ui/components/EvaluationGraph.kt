@@ -90,15 +90,11 @@ fun EvaluationGraph(
 
                 if (currentMoveIndex >= 0 && currentMoveIndex < evaluations.size) {
                     val currentEval = evaluations[currentMoveIndex]
-                    Text(
-                        text = formatEvaluation(currentEval),
+                    androidx.compose.material3.Text(
+                        text = formatGraphEvaluation(currentEval),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = when {
-                            currentEval > 200 -> Color(0xFF4CAF50)
-                            currentEval < -200 -> Color(0xFFF44336)
-                            else -> Color.Gray
-                        }
+                        color = if (currentEval > 200) Color(0xFF4CAF50) else if (currentEval < -200) Color(0xFFF44336) else Color.Gray
                     )
                 }
             }
@@ -193,7 +189,7 @@ private fun DrawScope.drawEvaluationGraph(
 /**
  * Форматирование оценки
  */
-private fun formatEvaluation(evaluation: Int): String {
+private fun formatGraphEvaluation(evaluation: Int): String {
     return when {
         evaluation.absoluteValue >= 100000 -> "Мат"
         else -> "%.2f".format(evaluation / 100.0).let { if (evaluation > 0) "+$it" else it }
@@ -224,7 +220,7 @@ private fun KeyMomentItem(moment: KeyMoment, onClick: () -> Unit) { // <-- До�
             text = "${moment.quality.getEmoji()} Ход ${moment.moveIndex / 2 + 1}: ${moment.san}",
             fontSize = 12.sp
         )
-        Text(
+        androidx.compose.material3.Text(
             text = formatEvaluation(moment.evaluationChange),
             fontSize = 12.sp,
             color = Color.Red,

@@ -33,7 +33,8 @@ import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.coroutines.launch
-
+import com.example.chessmentor.presentation.ui.theme.ChessMentorTheme
+import androidx.compose.foundation.border
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,7 +45,14 @@ class MainActivity : ComponentActivity() {
         val gameViewModel = GameViewModel(container)
 
         setContent {
-            ChessMentorApp(container, gameViewModel)
+            ChessMentorTheme { // <-- Наша новая тема
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    ChessMentorApp(container, gameViewModel)
+                }
+            }
         }
     }
 }
@@ -646,58 +654,91 @@ fun GamesListScreen(
 @Composable
 fun GameCard(
     game: Game,
-    mistakes: List<Mistake>, // <-- Добавляем
+    mistakes: List<Mistake>,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
+    // Используем Surface для чистого вида с легкой тенью
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp), // Небольшой отступ между карточками
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp, // Легкая тень
+        onClick = onClick
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // 1. Заголовок: Цвет, Номер, Статус
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(game.playerColor.getSymbol(), fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Партия #${game.id}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(game.timeControl ?: "Без контроля", fontSize = 14.sp, color = Color.Gray)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Иконка цвета (квадратик)
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(
+                                if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
+                                MaterialTheme.shapes.extraSmall
+                            )
+                            .border(1.dp, Color.Gray, MaterialTheme.shapes.extraSmall)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Партия #${game.id}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                StatusBadge(game.analysisStatus)
+
+                // Статус (Chip)
+                StatusChip(game.analysisStatus)
             }
 
-            if (game.isAnalyzed()) {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            // 2. Метаданные: Контроль времени
+            Text(
+                text = "Контроль: ${game.timeControl ?: "N/A"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // 3. Результаты анализа (если есть)
+            if (game.isAnalyzed()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Мини-график
                 MiniEvaluationGraph(
                     game = game,
                     mistakes = mistakes,
-                    modifier = Modifier.fillMaxWidth().height(50.dp).padding(vertical = 8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .padding(vertical = 4.dp)
                 )
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Точность и Ошибки
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("Точность: ${game.accuracy?.toInt() ?: 0}%", fontSize = 14.sp)
-                        Text(
-                            text = "Ошибок: ${game.totalMistakes}",
-                            fontSize = 14.sp,
-                            color = if (game.totalMistakes > 5) Color.Red else Color.Green
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("${MistakeType.BLUNDER.getEmoji()} ${game.blundersCount}", fontSize = 14.sp)
-                        Text("${MistakeType.MISTAKE.getEmoji()} ${game.mistakesCount}", fontSize = 14.sp)
-                        Text("${MistakeType.INACCURACY.getEmoji()} ${game.inaccuraciesCount}", fontSize = 14.sp)
+                    // Точность (крупно)
+                    AccuracyBadge(accuracy = game.accuracy?.toInt() ?: 0)
+
+                    // Ошибки (мелко)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        MistakeCountSmall(MistakeType.BLUNDER, game.blundersCount)
+                        MistakeCountSmall(MistakeType.MISTAKE, game.mistakesCount)
+                        MistakeCountSmall(MistakeType.INACCURACY, game.inaccuraciesCount)
                     }
                 }
             }
@@ -1298,25 +1339,138 @@ fun SummaryScreen(
 @Composable
 fun KeyMomentsCard(
     keyMoments: List<KeyMoment>,
-    onMomentClick: (KeyMoment) -> Unit // <-- Добавляем
+    onMomentClick: (KeyMoment) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Ключевые моменты", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Ключевые моменты",
+                style = MaterialTheme.typography.titleLarge
+            )
+            Spacer(Modifier.height(16.dp))
+
+            // Сетка 2x3 (Brilliant, Great, Best / Mistake, Blunder, Missed)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                KeyMomentItemLarge("Brilliant", keyMoments.count { it.quality == MoveQuality.BRILLIANT })
+                KeyMomentItemLarge("Great", keyMoments.count { it.quality == MoveQuality.GREAT_MOVE })
+                KeyMomentItemLarge("Best", keyMoments.count { it.quality == MoveQuality.BEST_MOVE })
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             Spacer(Modifier.height(12.dp))
 
-            // ... остальной код KeyMomentsCard ...
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                KeyMomentItemLarge("Mistake", keyMoments.count { it.quality == MoveQuality.MISTAKE })
+                KeyMomentItemLarge("Blunder", keyMoments.count { it.quality == MoveQuality.BLUNDER })
+                KeyMomentItemLarge("Inaccuracy", keyMoments.count { it.quality == MoveQuality.INACCURACY })
+            }
 
-            // Добавьте кликабельные элементы
-            keyMoments.take(5).forEach { moment ->
-                Row(
-                    modifier = Modifier.clickable { onMomentClick(moment) }
-                ) {
-                    Text("${moment.quality.getEmoji()} Ход ${moment.moveIndex / 2 + 1}: ${moment.san}")
+            // Список моментов (если есть)
+            if (keyMoments.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Быстрый обзор:",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+
+                keyMoments.take(5).forEach { moment ->
+                    KeyMomentRow(moment, onMomentClick)
                 }
             }
         }
     }
+}
+
+@Composable
+fun KeyMomentItemLarge(label: String, count: Int) {
+    val (emoji, color) = when (label) {
+        "Brilliant" -> "💎" to Color(0xFF26C6DA) // Голубой
+        "Great" -> "🔥" to Color(0xFF66BB6A) // Зеленый
+        "Best" -> "⭐" to Color(0xFF9CCC65) // Светло-зеленый
+        "Mistake" -> "❓" to Color(0xFFFFCA28) // Желтый
+        "Blunder" -> "❌" to Color(0xFFEF5350) // Красный
+        "Inaccuracy" -> "😐" to Color(0xFFFF7043) // Оранжевый
+        else -> "" to Color.Gray
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(emoji, fontSize = 28.sp)
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (count > 0) color else Color.Gray.copy(alpha = 0.5f)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun KeyMomentRow(moment: KeyMoment, onClick: (KeyMoment) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick(moment) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Иконка качества
+        Surface(
+            color = moment.quality.getColor().copy(alpha = 0.1f),
+            shape = MaterialTheme.shapes.small
+        ) {
+            Text(
+                text = moment.quality.getEmoji(),
+                modifier = Modifier.padding(8.dp),
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Текст хода
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Ход ${moment.moveIndex / 2 + 1}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = moment.san,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // Оценка
+        Text(
+            text = formatEvaluation(moment.evaluationChange),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (moment.evaluationChange > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("›", color = Color.Gray)
+    }
+    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 }
 
 @Composable
@@ -1681,6 +1835,63 @@ fun StatCard(title: String, value: String) {
         ) {
             Text(title, fontSize = 16.sp, color = Color.Gray)
             Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun StatusChip(status: AnalysisStatus) {
+    val (color, text) = when (status) {
+        AnalysisStatus.COMPLETED -> Color(0xFF81B64C) to "Готово" // Зеленый
+        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "Анализ..." // Оранжевый
+        AnalysisStatus.PENDING -> Color.Gray to "Очередь"
+        AnalysisStatus.FAILED -> Color(0xFFFA412D) to "Ошибка"
+    }
+
+    Surface(
+        color = color.copy(alpha = 0.1f), // Прозрачный фон
+        shape = MaterialTheme.shapes.small,
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.5f))
+    ) {
+        Text(
+            text = text,
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+fun AccuracyBadge(accuracy: Int) {
+    Column {
+        Text(
+            text = "Точность",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
+        Text(
+            text = "$accuracy%",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (accuracy >= 90) Color(0xFF81B64C) else if (accuracy >= 70) Color(0xFFFFA726) else Color.Gray
+        )
+    }
+}
+
+@Composable
+fun MistakeCountSmall(type: MistakeType, count: Int) {
+    if (count > 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(type.getEmoji(), fontSize = 14.sp)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
