@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
 
     // Compose (BOM)
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")

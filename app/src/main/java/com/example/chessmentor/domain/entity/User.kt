@@ -27,7 +27,10 @@ data class User(
 
     val createdAt: Long = System.currentTimeMillis(), // Используем Long для Room
     val lastLogin: Long? = null,
-    val isPremium: Boolean = false
+    val isPremium: Boolean = false,
+
+    val isSoundEnabled: Boolean = true,
+    val preferredTheme: String = "Classic"
 ) {
 
     init {
@@ -75,5 +78,7 @@ data class User(
         return "User(id=$id, nickname='$nickname', rating=$rating, skillLevel=$skillLevel)"
     }
 
-
+    fun withSettings(sound: Boolean, theme: String): User {
+        return copy(isSoundEnabled = sound, preferredTheme = theme)
+    }
 }

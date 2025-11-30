@@ -35,6 +35,16 @@ import com.github.bhlangonijr.chesslib.Board
 import kotlinx.coroutines.launch
 import com.example.chessmentor.presentation.ui.theme.ChessMentorTheme
 import androidx.compose.foundation.border
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import com.example.chessmentor.presentation.ui.util.getIcon // Импорт
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import com.example.chessmentor.presentation.viewmodel.SettingsViewModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.FirstPage
+import androidx.compose.material.icons.filled.LastPage
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,37 +102,60 @@ fun ChessMentorApp(
             topBar = {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = when(currentScreen) {
-                                "games" -> "📋 Мои партии"
-                                "upload" -> "⬆️ Загрузить партию"
-                                "game_view" -> "🔍 Анализ партии"
-                                else -> "♟️ Шахматный Ментор"
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Выбираем иконку для текущего экрана
+                            val icon = when(currentScreen) {
+                                "games" -> Icons.Default.List
+                                "upload" -> Icons.Default.Upload
+                                "game_view" -> Icons.Default.Search
+                                "summary" -> Icons.Default.Insights
+                                "training" -> Icons.Default.FitnessCenter
+                                else -> Icons.Default.SportsEsports
+                            }
+
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Text(
+                                text = when(currentScreen) {
+                                    "games" -> "Мои партии"
+                                    "upload" -> "Загрузить партию"
+                                    "game_view" -> "Анализ партии"
+                                    "summary" -> "Сводка анализа"
+                                    "training" -> "Тренировка"
+                                    else -> "Шахматный Ментор"
+                                },
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     },
                     navigationIcon = {
-                        if (currentScreen == "game_view") {
-                            TextButton(onClick = { currentScreen = "summary" }) {
-                                Text("← К сводке")
-                            }
-                        } else if (currentScreen == "summary") {
-                            TextButton(onClick = {
-                                currentScreen = "games"
-                                gameViewModel.closeGameView()
+                        if (currentScreen != "home" && currentUser != null) {
+                            IconButton(onClick = {
+                                if (currentScreen == "game_view") {
+                                    currentScreen = "summary"
+                                } else if (currentScreen == "summary") {
+                                    currentScreen = "games"
+                                    gameViewModel.closeGameView()
+                                } else {
+                                    currentScreen = "home"
+                                }
                             }) {
-                                Text("← К партиям")
-                            }
-                        } else if (currentScreen == "games" || currentScreen == "upload") {
-                            TextButton(onClick = { currentScreen = "home" }) {
-                                Text("← На главную")
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Назад"
+                                )
                             }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.primary
+                        containerColor = MaterialTheme.colorScheme.background, // <-- Прозрачный фон
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
                     )
                 )
             },
@@ -130,47 +163,55 @@ fun ChessMentorApp(
                 if (currentUser != null && currentScreen != "game_view") {
                     NavigationBar {
                         NavigationBarItem(
-                            icon = { Text("🏠") },
+                            icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
                             label = { Text("Главная") },
                             selected = currentScreen == "home",
                             onClick = { currentScreen = "home" }
                         )
                         NavigationBarItem(
-                            icon = { Text("📋") },
+                            icon = { Icon(Icons.Default.List, contentDescription = "Партии") },
                             label = { Text("Партии") },
                             selected = currentScreen == "games",
                             onClick = { currentScreen = "games" }
                         )
                         NavigationBarItem(
-                            icon = { Text("💪") },
+                            icon = { Icon(Icons.Default.FitnessCenter, contentDescription = "Тренировка") },
                             label = { Text("Тренировка") },
                             selected = currentScreen == "training",
                             onClick = { currentScreen = "training" }
                         )
                         NavigationBarItem(
-                            icon = { Text("⬆️") },
+                            icon = { Icon(Icons.Default.Upload, contentDescription = "Загрузить") },
                             label = { Text("Загрузить") },
                             selected = currentScreen == "upload",
                             onClick = { currentScreen = "upload" }
                         )
                         NavigationBarItem(
-                            icon = { Text("📊") },
+                            icon = { Icon(Icons.Default.Analytics, contentDescription = "Статистика") },
                             label = { Text("Статистика") },
                             selected = currentScreen == "stats",
                             onClick = { currentScreen = "stats" }
                         )
+
                     }
                 }
             }
         ) { paddingValues ->
+            // ... содержимое (when currentScreen) остается без изменений ...
+            // Скопируйте его из вашего кода
 
             // Главный контент
             when (currentScreen) {
                 "home" -> HomeScreen(
-                    paddingValues, currentUser, message, isLoading,
-                    { message = "" },
-                    { currentUser = null },
-                    { nick, email, pass, rating ->
+                    paddingValues = paddingValues,
+                    currentUser = currentUser,
+                    gameViewModel = gameViewModel, // <-- ДОБАВЛЕНО
+                    message = message,
+                    isLoading = isLoading,
+                    onNavigateToSettings = { currentScreen = "settings" }, // <-- ДОБАВИТЬ
+                    onMessageDismiss = { message = "" },
+                    onLogout = { currentUser = null },
+                    onRegister = { nick, email, pass, rating ->
                         coroutineScope.launch {
                             isLoading = true
                             try {
@@ -186,9 +227,10 @@ fun ChessMentorApp(
                             } finally {
                                 isLoading = false
                             }
+
                         }
                     },
-                    { email, pass ->
+                    onLogin = { email, pass ->
                         coroutineScope.launch {
                             isLoading = true
                             try {
@@ -206,17 +248,34 @@ fun ChessMentorApp(
                             }
                         }
                     },
-                    regNickname, regEmail, regPassword, regRating, loginEmail, loginPassword,
-                    { regNickname = it }, { regEmail = it }, { regPassword = it }, { regRating = it },
-                    { loginEmail = it }, { loginPassword = it }
+                    regNickname = regNickname,
+                    regEmail = regEmail,
+                    regPassword = regPassword,
+                    regRating = regRating,
+                    loginEmail = loginEmail,
+                    loginPassword = loginPassword,
+                    onRegNicknameChange = { regNickname = it },
+                    onRegEmailChange = { regEmail = it },
+                    onRegPasswordChange = { regPassword = it },
+                    onRegRatingChange = { regRating = it },
+                    onLoginEmailChange = { loginEmail = it },
+                    onLoginPasswordChange = { loginPassword = it }
                 )
 
                 "games" -> GamesListScreen(
-                    paddingValues, gameViewModel, container,
+                    paddingValues = paddingValues,
+                    gameViewModel = gameViewModel,
+                    container = container,
                     onGameClick = { game ->
                         gameViewModel.selectGame(game)
                         currentScreen = "summary"
                     }
+                )
+
+                "game_view" -> GameViewScreen(
+                    paddingValues = paddingValues,
+                    gameViewModel = gameViewModel,
+                    user = currentUser // <-- ПЕРЕДАЕМ ПОЛЬЗОВАТЕЛЯ
                 )
                 "stats" -> {
                     currentUser?.let { user ->
@@ -258,23 +317,83 @@ fun ChessMentorApp(
                     onGameUploaded = { currentScreen = "summary" }
                 )
 
-                "game_view" -> GameViewScreen(
-                    paddingValues, gameViewModel
-                )
+
+
+                "settings" -> {
+                    currentUser?.let { user ->
+                        SettingsScreen(
+                            paddingValues = paddingValues,
+                            user = user,
+                            container = container,
+                            onLogout = {
+                                currentUser = null
+                                currentScreen = "home"
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 // ==================== HOME SCREEN ====================
+// ==================== HOME SCREEN (ГЛАВНЫЙ) ====================
 @Composable
 fun HomeScreen(
     paddingValues: PaddingValues,
     currentUser: User?,
+    gameViewModel: GameViewModel, // <-- Новый параметр
+    onNavigateToSettings: () -> Unit,
     message: String,
     isLoading: Boolean,
     onMessageDismiss: () -> Unit,
     onLogout: () -> Unit,
+    onRegister: (String, String, String, Int) -> Unit,
+    onLogin: (String, String) -> Unit,
+    regNickname: String,
+    regEmail: String,
+    regPassword: String,
+    regRating: String,
+    loginEmail: String,
+    loginPassword: String,
+    onRegNicknameChange: (String) -> Unit,
+    onRegEmailChange: (String) -> Unit,
+    onRegPasswordChange: (String) -> Unit,
+    onRegRatingChange: (String) -> Unit,
+    onLoginEmailChange: (String) -> Unit,
+    onLoginPasswordChange: (String) -> Unit
+) {
+    // Логика переключения: Вход или Дашборд
+    if (currentUser == null) {
+        AuthScreenContent(
+            paddingValues, message, isLoading, onMessageDismiss,
+            onRegister, onLogin, regNickname, regEmail, regPassword, regRating,
+            loginEmail, loginPassword, onRegNicknameChange, onRegEmailChange,
+            onRegPasswordChange, onRegRatingChange, onLoginEmailChange, onLoginPasswordChange
+        )
+    } else {
+        // ...
+        DashboardContent(
+            paddingValues = paddingValues,
+            user = currentUser,
+            gameViewModel = gameViewModel,
+            onLogout = onLogout,
+            onNavigateToTraining = { /* пока пусто или переход на training */ },
+            onNavigateToSettings = onNavigateToSettings // Передаем параметр из HomeScreen
+        )
+    }
+
+}
+
+
+// ==================== ЭКРАН ВХОДА (СТАРЫЙ HOME) ====================
+@Composable
+fun AuthScreenContent(
+    paddingValues: PaddingValues,
+    message: String,
+    isLoading: Boolean,
+    onMessageDismiss: () -> Unit,
     onRegister: (String, String, String, Int) -> Unit,
     onLogin: (String, String) -> Unit,
     regNickname: String,
@@ -299,45 +418,36 @@ fun HomeScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
         // Приветствие
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (currentUser != null)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.secondaryContainer
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
                 )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    if (currentUser != null) {
-                        Text(
-                            text = "Привет, ${currentUser.nickname}! 👋",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Email: ${currentUser.email}")
-                        Text("Рейтинг: ${currentUser.rating}")
-                        Text("Уровень: ${currentUser.skillLevel.getDisplayName()}")
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = onLogout,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.SportsEsports,
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp),
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                        ) {
-                            Text("Выйти")
                         }
-                    } else {
-                        Text(
-                            text = "Добро пожаловать!",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text("Войдите или зарегистрируйтесь")
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text("Добро пожаловать!", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("Войдите, чтобы начать")
                     }
                 }
             }
@@ -345,186 +455,73 @@ fun HomeScreen(
 
         // Сообщение
         if (message.isNotEmpty()) {
+            val isError = message.startsWith("❌") || message.startsWith("Ошибка")
+            val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
             item {
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer
                     )
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(message, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onMessageDismiss) {
-                            Text("✕")
-                        }
+                        Icon(if (isError) Icons.Default.Error else Icons.Default.CheckCircle, null, tint = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(cleanMessage, modifier = Modifier.weight(1f), color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onTertiaryContainer)
+                        IconButton(onClick = onMessageDismiss) { Icon(Icons.Default.Close, null) }
                     }
                 }
             }
         }
 
-        // Формы входа/регистрации (только если не залогинен)
-        if (currentUser == null) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(
-                        onClick = { currentTab = "login" },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (currentTab == "login")
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.secondary
-                        ),
-                        enabled = !isLoading
-                    ) {
-                        Text("Вход")
-                    }
-                    Button(
-                        onClick = { currentTab = "register" },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (currentTab == "register")
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.secondary
-                        ),
-                        enabled = !isLoading
-                    ) {
-                        Text("Регистрация")
-                    }
-                }
+        // Табы и формы
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Button(
+                    onClick = { currentTab = "login" },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (currentTab == "login") MaterialTheme.colorScheme.surface else Color.Transparent, contentColor = if (currentTab == "login") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
+                    elevation = if (currentTab == "login") ButtonDefaults.buttonElevation(2.dp) else ButtonDefaults.buttonElevation(0.dp),
+                    enabled = !isLoading
+                ) { Text("Вход") }
+                Spacer(Modifier.width(4.dp))
+                Button(
+                    onClick = { currentTab = "register" },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (currentTab == "register") MaterialTheme.colorScheme.surface else Color.Transparent, contentColor = if (currentTab == "register") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
+                    elevation = if (currentTab == "register") ButtonDefaults.buttonElevation(2.dp) else ButtonDefaults.buttonElevation(0.dp),
+                    enabled = !isLoading
+                ) { Text("Регистрация") }
             }
+        }
 
-            if (currentTab == "login") {
-                item {
-                    Card {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text("🔐 Вход", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
-                            OutlinedTextField(
-                                value = loginEmail,
-                                onValueChange = onLoginEmailChange,
-                                label = { Text("Email") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            OutlinedTextField(
-                                value = loginPassword,
-                                onValueChange = onLoginPasswordChange,
-                                label = { Text("Пароль") },
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            Button(
-                                onClick = { onLogin(loginEmail, loginPassword) },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading && loginEmail.isNotBlank() && loginPassword.isNotBlank()
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Входим...")
-                                } else {
-                                    Text("Войти")
-                                }
-                            }
-
-                            Divider()
-                            Text("💡 Тест: test@chessmentor.ru / test123", fontSize = 12.sp)
+        // Поля ввода
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (currentTab == "login") {
+                        Text("С возвращением!", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(value = loginEmail, onValueChange = onLoginEmailChange, label = { Text("Email") }, leadingIcon = { Icon(Icons.Default.Email, null) }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        OutlinedTextField(value = loginPassword, onValueChange = onLoginPasswordChange, label = { Text("Пароль") }, leadingIcon = { Icon(Icons.Default.Lock, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        Button(onClick = { onLogin(loginEmail, loginPassword) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !isLoading && loginEmail.isNotBlank() && loginPassword.isNotBlank()) {
+                            if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Войти", fontSize = 16.sp)
                         }
-                    }
-                }
-            }
-
-            if (currentTab == "register") {
-                item {
-                    Card {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text("📝 Регистрация", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
-                            OutlinedTextField(
-                                value = regNickname,
-                                onValueChange = onRegNicknameChange,
-                                label = { Text("Никнейм") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            OutlinedTextField(
-                                value = regEmail,
-                                onValueChange = onRegEmailChange,
-                                label = { Text("Email") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            OutlinedTextField(
-                                value = regPassword,
-                                onValueChange = onRegPasswordChange,
-                                label = { Text("Пароль") },
-                                visualTransformation = PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            OutlinedTextField(
-                                value = regRating,
-                                onValueChange = onRegRatingChange,
-                                label = { Text("Рейтинг (600-3500)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading
-                            )
-
-                            Button(
-                                onClick = {
-                                    onRegister(
-                                        regNickname,
-                                        regEmail,
-                                        regPassword,
-                                        regRating.toIntOrNull() ?: 1200
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isLoading &&
-                                        regNickname.isNotBlank() &&
-                                        regEmail.isNotBlank() &&
-                                        regPassword.isNotBlank() &&
-                                        regRating.isNotBlank()
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Регистрируем...")
-                                } else {
-                                    Text("Зарегистрироваться")
-                                }
-                            }
+                    } else {
+                        Text("Создать аккаунт", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(value = regNickname, onValueChange = onRegNicknameChange, label = { Text("Никнейм") }, leadingIcon = { Icon(Icons.Default.Person, null) }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        OutlinedTextField(value = regEmail, onValueChange = onRegEmailChange, label = { Text("Email") }, leadingIcon = { Icon(Icons.Default.Email, null) }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        OutlinedTextField(value = regPassword, onValueChange = onRegPasswordChange, label = { Text("Пароль") }, leadingIcon = { Icon(Icons.Default.Lock, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        OutlinedTextField(value = regRating, onValueChange = onRegRatingChange, label = { Text("Рейтинг") }, leadingIcon = { Icon(Icons.Default.Star, null) }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading)
+                        Button(onClick = { onRegister(regNickname, regEmail, regPassword, regRating.toIntOrNull() ?: 1200) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !isLoading && regNickname.isNotBlank()) {
+                            if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Зарегистрироваться", fontSize = 16.sp)
                         }
                     }
                 }
@@ -532,7 +529,6 @@ fun HomeScreen(
         }
     }
 }
-
 // Остальные компоненты (GamesListScreen, UploadGameScreen и т.д.) остаются без изменений
 // ==================== GAMES LIST SCREEN ====================
 @Composable
@@ -797,35 +793,66 @@ fun UploadGameScreen(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "⬆️ Загрузить партию",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudUpload, // Если нет, используйте Icons.Default.Upload
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
                     )
-                    Text("Вставьте PGN вашей партии для анализа")
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Загрузить партию",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Вставьте PGN для анализа",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
 
         // Сообщение
         if (message.isNotEmpty()) {
+            val isError = message.startsWith("❌") || message.startsWith("Ошибка")
+            // Очищаем текст от старых эмодзи, если они приходят из ViewModel
+            val cleanMessage = message.replace("✅ ", "").replace("❌ ", "")
+
             item {
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer
                     )
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(message, modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = cleanMessage,
+                            modifier = Modifier.weight(1f),
+                            color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                         if (!isLoading) {
-                            TextButton(onClick = { gameViewModel.clearMessage() }) {
-                                Text("✕")
+                            IconButton(onClick = { gameViewModel.clearMessage() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Закрыть")
                             }
                         }
                     }
@@ -850,7 +877,8 @@ fun UploadGameScreen(
                             .fillMaxWidth()
                             .height(200.dp),
                         maxLines = 10,
-                        enabled = !isLoading
+                        enabled = !isLoading,
+                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
                     )
 
                     // Выбор цвета
@@ -862,13 +890,28 @@ fun UploadGameScreen(
                         FilterChip(
                             selected = selectedColor == ChessColor.WHITE,
                             onClick = { gameViewModel.selectedColor.value = ChessColor.WHITE },
-                            label = { Text("⚪ Белые") },
+                            label = { Text("Белые") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Circle,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.border(1.dp, Color.Gray, androidx.compose.foundation.shape.CircleShape)
+                                )
+                            },
                             enabled = !isLoading
                         )
                         FilterChip(
                             selected = selectedColor == ChessColor.BLACK,
                             onClick = { gameViewModel.selectedColor.value = ChessColor.BLACK },
-                            label = { Text("⚫ Чёрные") },
+                            label = { Text("Чёрные") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Circle,
+                                    contentDescription = null,
+                                    tint = Color.Black
+                                )
+                            },
                             enabled = !isLoading
                         )
                     }
@@ -880,13 +923,14 @@ fun UploadGameScreen(
                         label = { Text("Контроль времени (опционально)") },
                         placeholder = { Text("5+3, 10+0, 15+10") },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading
+                        enabled = !isLoading,
+                        leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) }
                     )
 
                     // Кнопка загрузки
                     Button(
                         onClick = { gameViewModel.uploadGame() },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                         enabled = !isLoading && pgnInput.isNotBlank()
                     ) {
                         if (isLoading) {
@@ -897,23 +941,36 @@ fun UploadGameScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Анализируем...")
                         } else {
-                            Text("🚀 Загрузить и анализировать")
+                            Icon(Icons.Default.Analytics, contentDescription = null) // Или AutoGraph
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Загрузить и анализировать")
                         }
                     }
 
                     // Подсказка
                     Divider()
 
-                    Text(
-                        text = "💡 Пример PGN:",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(20.dp).padding(top = 2.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Пример PGN:",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -924,354 +981,141 @@ fun UploadGameScreen(
 @Composable
 fun GameViewScreen(
     paddingValues: PaddingValues,
-    gameViewModel: GameViewModel
+    gameViewModel: GameViewModel,
+    user: User?
 ) {
     val game by gameViewModel.selectedGame
     val mistakes = gameViewModel.selectedGameMistakes
 
-    // Создаём BoardViewModel для управления доской
-    val boardViewModel = remember { BoardViewModel() }
-
-    // Выбранная тема доски
-    var selectedTheme by remember { mutableStateOf(BoardThemes.Classic) }
-
-    // Показывать ли выбор темы
-    var showThemeSelector by remember { mutableStateOf(false) }
-
-    // Загружаем партию в BoardViewModel
-    LaunchedEffect(game?.id) {
-        game?.let { currentGame ->
-            boardViewModel.loadGame(currentGame, mistakes)
-        }
+    val context = LocalContext.current
+    val boardViewModel = remember { BoardViewModel().apply { soundManager = SoundManager(context) } }
+    val selectedTheme = remember(user?.preferredTheme) {
+        if (user != null) BoardThemes.getAll().find { it.name == user.preferredTheme } ?: BoardThemes.Classic else BoardThemes.Classic
     }
 
-    if (game == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Партия не выбрана")
-        }
-        return
-    }
+    DisposableEffect(Unit) { onDispose { boardViewModel.soundManager?.release() } }
+    LaunchedEffect(game?.id) { game?.let { boardViewModel.loadGame(it, mistakes) } }
+
+    if (game == null) return
 
     val board by boardViewModel.board
     val currentMoveIndex by boardViewModel.currentMoveIndex
-    val totalMoves = boardViewModel.moves.size
     val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMoveNotation = boardViewModel.getCurrentMoveNotation()
     val highlightedSquares by boardViewModel.highlightedSquares
     val lastMove by boardViewModel.lastMove
     val currentMistake = boardViewModel.getCurrentMistake()
-    val evaluations = boardViewModel.evaluations.toList()
-
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(paddingValues)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // Кнопка выбора темы
-        Row(
+        // 1. ДОСКА (Максимально возможная)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .aspectRatio(1f) // Квадрат
+                .padding(8.dp)
         ) {
-            Text(
-                text = "Тема: ${selectedTheme.name}",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Button(
-                onClick = { showThemeSelector = !showThemeSelector },
-                modifier = Modifier.height(36.dp)
-            ) {
-                Text("🎨 Сменить тему")
-            }
-        }
-
-        // Выбор темы (если открыт)
-        if (showThemeSelector) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Выберите тему доски:",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        BoardThemes.getAll().forEach { theme ->
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.clickable {
-                                    selectedTheme = theme
-                                    showThemeSelector = false
-                                }
-                            ) {
-                                // Превью темы
-                                Box(
-                                    modifier = Modifier
-                                        .size(60.dp)
-                                        .background(
-                                            color = if (selectedTheme == theme)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                Color.Transparent
-                                        )
-                                        .padding(4.dp)
-                                ) {
-                                    Canvas(modifier = Modifier.fillMaxSize()) {
-                                        val squareSize = size.width / 2
-                                        // Рисуем 2x2 клетки для превью
-                                        for (i in 0..1) {
-                                            for (j in 0..1) {
-                                                val isLight = (i + j) % 2 == 0
-                                                drawRect(
-                                                    color = if (isLight) theme.lightSquare else theme.darkSquare,
-                                                    topLeft = Offset(i * squareSize, j * squareSize),
-                                                    size = Size(squareSize, squareSize)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Text(
-                                    text = theme.name,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (selectedTheme == theme) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Доска с шкалой оценки
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            // Шкала оценки
-            EvaluationBar(
-                evaluation = currentEvaluation,
-                modifier = Modifier.height(330.dp)
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Шахматная доска с выбранной темой
-            ChessBoard(
-                board = board,
-                highlightedSquares = highlightedSquares,
-                lastMove = lastMove,
-                modifier = Modifier
-                    .weight(1f)
-                    .aspectRatio(1f),
-                flipped = game!!.playerColor == com.example.chessmentor.domain.entity.ChessColor.BLACK,
-                theme = selectedTheme,  // Применяем выбранную тему
-                animateMove = true      // Включаем анимации
-            )
-        }
-
-        // Навигатор ходов
-        MoveNavigator(
-            currentMoveIndex = currentMoveIndex,
-            totalMoves = totalMoves,
-            currentMove = currentMoveNotation,
-            onFirstMove = { boardViewModel.goToStart() },
-            onPreviousMove = { boardViewModel.goToPreviousMove() },
-            onNextMove = { boardViewModel.goToNextMove() },
-            onLastMove = { boardViewModel.goToEnd() },
-            modifier = Modifier.padding(horizontal = 16.dp)
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Информация об ошибке на текущем ходу
-        if (currentMistake != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = when (currentMistake.mistakeType) {
-                        com.example.chessmentor.domain.entity.MistakeType.BLUNDER -> Color(0xFFFFEBEE)
-                        com.example.chessmentor.domain.entity.MistakeType.MISTAKE -> Color(0xFFFFF3E0)
-                        com.example.chessmentor.domain.entity.MistakeType.INACCURACY -> Color(0xFFFFFDE7)
-                    }
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Полоска оценки
+                EvaluationBar(
+                    evaluation = currentEvaluation,
+                    modifier = Modifier.width(24.dp).fillMaxHeight().padding(end = 4.dp)
                 )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${currentMistake.getEmoji()} ${currentMistake.getDescription()}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "-${currentMistake.getEvaluationLossInPawns()}",
-                            fontSize = 14.sp,
-                            color = Color.Red,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Ваш ход:", fontSize = 12.sp, color = Color.Gray)
-                            Text(
-                                text = currentMistake.userMove,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Red
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Лучше:", fontSize = 12.sp, color = Color.Gray)
-                            Text(
-                                text = currentMistake.bestMove,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Green
-                            )
-                        }
-                    }
-
-                    if (currentMistake.comment != null) {
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                        Text(
-                            text = "💡 ${currentMistake.comment}",
-                            fontSize = 14.sp,
-                            color = Color.DarkGray
-                        )
-                    }
-                }
+                // Доска
+                ChessBoard(
+                    board = board,
+                    highlightedSquares = highlightedSquares,
+                    lastMove = lastMove,
+                    modifier = Modifier.fillMaxSize(),
+                    flipped = game!!.playerColor == com.example.chessmentor.domain.entity.ChessColor.BLACK,
+                    theme = selectedTheme,
+                    animateMove = true
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Статистика партии (скроллируемая)
-        LazyColumn(
+        // 2. ПАНЕЛЬ УПРАВЛЕНИЯ (Компактная)
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            // Статистика
-            if (game!!.isAnalyzed()) {
-                item {
-                    Card {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "📊 Статистика партии",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                // Ход
+                Text(
+                    text = currentMoveNotation,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+                Spacer(Modifier.height(8.dp))
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                // Кнопки
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Используем большие иконки для удобства
+                    IconButton(onClick = { boardViewModel.goToStart() }) { Icon(Icons.Default.FirstPage, null, modifier = Modifier.size(32.dp)) }
+                    IconButton(onClick = { boardViewModel.goToPreviousMove() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(32.dp)) }
+                    IconButton(onClick = { boardViewModel.goToNextMove() }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(32.dp)) }
+                    IconButton(onClick = { boardViewModel.goToEnd() }) { Icon(Icons.Default.LastPage, null, modifier = Modifier.size(32.dp)) }
+                }
+            }
+        }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text("Точность", fontSize = 14.sp, color = Color.Gray)
-                                    Text(
-                                        text = "${game!!.accuracy?.toInt() ?: 0}%",
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+        Spacer(modifier = Modifier.height(12.dp))
 
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text("Всего ошибок", fontSize = 14.sp, color = Color.Gray)
-                                    Text(
-                                        text = "${game!!.totalMistakes}",
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Divider()
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceAround
-                            ) {
-                                MistakeTypeCount(
-                                    type = com.example.chessmentor.domain.entity.MistakeType.BLUNDER,
-                                    count = game!!.blundersCount
-                                )
-                                MistakeTypeCount(
-                                    type = com.example.chessmentor.domain.entity.MistakeType.MISTAKE,
-                                    count = game!!.mistakesCount
-                                )
-                                MistakeTypeCount(
-                                    type = com.example.chessmentor.domain.entity.MistakeType.INACCURACY,
-                                    count = game!!.inaccuraciesCount
-                                )
-                            }
-                        }
+        // 3. АНАЛИЗ ТЕКУЩЕГО ХОДА (Только он!)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f) // Занимает всё место внизу
+                .padding(horizontal = 12.dp)
+        ) {
+            if (currentMistake != null) {
+                // Если ошибка - показываем карточку
+                MistakeCard(currentMistake)
+            } else {
+                // Если нет ошибки - показываем нейтральное сообщение или оценку
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF81B64C),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Хороший ход",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Оценка: ${formatEvaluation(currentEvaluation)}",
+                            color = Color.Gray
+                        )
                     }
                 }
             }
-
-            // Список всех ошибок
-            if (mistakes.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "🎯 Все ошибки в партии:",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                items(mistakes) { mistake ->
-                    MistakeCard(mistake)
-                }
-            }
-
-            // Отступ снизу
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
         }
-    }
 
+        Spacer(modifier = Modifier.height(16.dp))
+    }
 }
 // ==================== SUMMARY SCREEN ====================
 @Composable
@@ -1396,27 +1240,44 @@ fun KeyMomentsCard(
 
 @Composable
 fun KeyMomentItemLarge(label: String, count: Int) {
-    val (emoji, color) = when (label) {
-        "Brilliant" -> "💎" to Color(0xFF26C6DA) // Голубой
-        "Great" -> "🔥" to Color(0xFF66BB6A) // Зеленый
-        "Best" -> "⭐" to Color(0xFF9CCC65) // Светло-зеленый
-        "Mistake" -> "❓" to Color(0xFFFFCA28) // Желтый
-        "Blunder" -> "❌" to Color(0xFFEF5350) // Красный
-        "Inaccuracy" -> "😐" to Color(0xFFFF7043) // Оранжевый
-        else -> "" to Color.Gray
+    val color = when (label) {
+        "Brilliant" -> Color(0xFF26C6DA)
+        "Great" -> Color(0xFF66BB6A)
+        "Best" -> Color(0xFF9CCC65)
+        "Mistake" -> Color(0xFFFFCA28)
+        "Blunder" -> Color(0xFFEF5350)
+        "Inaccuracy" -> Color(0xFFFF7043)
+        else -> Color.Gray
+    }
+
+    val icon = when(label) {
+        "Brilliant" -> Icons.Default.Diamond
+        "Great" -> Icons.Default.ThumbUp
+        "Best" -> Icons.Default.Star
+        "Mistake" -> Icons.Default.Error
+        "Blunder" -> Icons.Default.Cancel
+        "Inaccuracy" -> Icons.Default.Bolt
+        else -> Icons.Default.Circle
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(emoji, fontSize = 28.sp)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (count > 0) color else Color.Gray.copy(alpha = 0.5f),
+            modifier = Modifier.size(32.dp)
+        )
+
         Text(
             text = "$count",
-            style = MaterialTheme.typography.headlineSmall,
+            fontSize = 24.sp, // Вместо style
             fontWeight = FontWeight.Bold,
             color = if (count > 0) color else Color.Gray.copy(alpha = 0.5f)
         )
+
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 12.sp, // Вместо style
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -1436,10 +1297,11 @@ fun KeyMomentRow(moment: KeyMoment, onClick: (KeyMoment) -> Unit) {
             color = moment.quality.getColor().copy(alpha = 0.1f),
             shape = MaterialTheme.shapes.small
         ) {
-            Text(
-                text = moment.quality.getEmoji(),
-                modifier = Modifier.padding(8.dp),
-                fontSize = 16.sp
+            Icon(
+                imageVector = moment.quality.getIcon(),
+                contentDescription = null,
+                tint = moment.quality.getColor(),
+                modifier = Modifier.size(20.dp).padding(4.dp)
             )
         }
 
@@ -1468,46 +1330,41 @@ fun KeyMomentRow(moment: KeyMoment, onClick: (KeyMoment) -> Unit) {
         )
 
         Spacer(modifier = Modifier.width(8.dp))
-        Text("›", color = Color.Gray)
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.Gray
+        )
     }
     Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 }
 
-@Composable
-fun KeyMomentCount(label: String, count: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        val (emoji, color) = when (label) {
-            "Brilliant" -> "💎" to Color(0xFF03A9F4)
-            "Great" -> "👍" to Color(0xFF4CAF50)
-            "Best" -> "⭐" to Color(0xFF8BC34A)
-            "Mistake" -> "⚠️" to Color(0xFFFF9800)
-            "Blunder" -> "❌" to Color(0xFFF44336)
-            else -> "🎯" to Color.Gray
-        }
-        Text(emoji, fontSize = 24.sp)
-        Text("$count", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = color)
-        Text(label, fontSize = 12.sp, color = Color.Gray)
-    }
-}
 
 
 @Composable
 fun MistakeTypeCount(type: MistakeType, count: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = type.getEmoji(),
-            fontSize = 24.sp
-        )
-        Text(
-            text = "$count",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = type.getDescription(),
-            fontSize = 12.sp,
-            color = Color.Gray
-        )
+    if (count > 0) {
+        val color = when (type) {
+            MistakeType.BLUNDER -> Color(0xFFD32F2F)
+            MistakeType.MISTAKE -> Color(0xFFF57C00)
+            MistakeType.INACCURACY -> Color(0xFFFBC02D)
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = type.getIcon(),
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
@@ -1520,29 +1377,49 @@ fun MistakeCard(mistake: Mistake) {
                 MistakeType.MISTAKE -> Color(0xFFFFF3E0)
                 MistakeType.INACCURACY -> Color(0xFFFFFDE7)
             }
-        )
+        ),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Заголовок ошибки
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "${mistake.getEmoji()} Ход ${mistake.moveNumber}",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Определяем цвет иконки
+                    val iconColor = when (mistake.mistakeType) {
+                        MistakeType.BLUNDER -> Color(0xFFD32F2F)
+                        MistakeType.MISTAKE -> Color(0xFFF57C00)
+                        MistakeType.INACCURACY -> Color(0xFFFBC02D)
+                    }
+
+                    Icon(
+                        imageVector = mistake.mistakeType.getIcon(),
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Ход ${mistake.moveNumber}: ${mistake.mistakeType.getDescription()}",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Text(
                     text = "-${mistake.getEvaluationLossInPawns()}",
                     fontSize = 14.sp,
-                    color = Color.Red,
+                    color = Color(0xFFD32F2F), // Red
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
+            // Ходы
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1553,7 +1430,7 @@ fun MistakeCard(mistake: Mistake) {
                         text = mistake.userMove,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Red
+                        color = Color(0xFFD32F2F) // Red
                     )
                 }
 
@@ -1563,24 +1440,32 @@ fun MistakeCard(mistake: Mistake) {
                         text = mistake.bestMove,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Green
+                        color = Color(0xFF2E7D32) // Green
                     )
                 }
             }
 
+            // Комментарий
             if (mistake.comment != null) {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = "💡 ${mistake.comment}",
-                    fontSize = 14.sp,
-                    color = Color.DarkGray
-                )
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(16.dp).padding(top = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = mistake.comment,
+                        fontSize = 14.sp,
+                        color = Color.DarkGray,
+                        lineHeight = 20.sp
+                    )
+                }
             }
         }
-
     }
-
-
 }
 // ==================== TRAINING SCREEN ====================
 @Composable
@@ -1727,6 +1612,7 @@ fun TrainingScreen(
     }
 }
 // ==================== STATISTICS SCREEN ====================
+// ==================== STATISTICS SCREEN ====================
 @Composable
 fun StatisticsScreen(
     paddingValues: PaddingValues,
@@ -1754,9 +1640,21 @@ fun StatisticsScreen(
         // Заголовок
         item {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("📊 Моя статистика", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("Прогресс с момента первого анализа")
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.InsertChart, // Или Insights
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Моя статистика", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("Прогресс обучения", style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         }
@@ -1766,27 +1664,55 @@ fun StatisticsScreen(
             item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         }
         if (errorMessage != null) {
-            item { Text("Ошибка: $errorMessage", color = MaterialTheme.colorScheme.error) }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Row(modifier = Modifier.padding(16.dp)) {
+                        Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Ошибка: $errorMessage", color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
         }
 
         // Основная статистика
         stats?.let { s ->
             item {
-                StatCard("📈 Рейтинг", "${s.currentRating} (${if (s.ratingChange >= 0) "+" else ""}${s.ratingChange})")
+                StatCard(
+                    icon = Icons.Default.TrendingUp,
+                    title = "Рейтинг",
+                    value = "${s.currentRating}",
+                    subValue = if (s.ratingChange >= 0) "+${s.ratingChange}" else "${s.ratingChange}",
+                    subValueColor = if (s.ratingChange >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                )
             }
             item {
-                StatCard("🎯 Точность", "${s.averageAccuracy.toInt()}% (${s.accuracyTrend})")
+                StatCard(
+                    icon = Icons.Default.TrackChanges, // Или LocationSearching
+                    title = "Точность",
+                    value = "${s.averageAccuracy.toInt()}%",
+                    subValue = s.accuracyTrend
+                )
             }
             item {
-                StatCard("🎮 Партии", "${s.analyzedGames} / ${s.totalGames} проанализировано")
+                StatCard(
+                    icon = Icons.Default.SportsEsports, // Или Gamepad
+                    title = "Партии",
+                    value = "${s.analyzedGames}",
+                    subValue = "из ${s.totalGames}"
+                )
             }
 
             // Статистика по ошибкам
             item {
                 Card {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Ошибки", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.BugReport, null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Анализ ошибок", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(16.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                             MistakeTypeCount(MistakeType.BLUNDER, s.blunders)
                             MistakeTypeCount(MistakeType.MISTAKE, s.mistakes)
@@ -1800,10 +1726,25 @@ fun StatisticsScreen(
             item {
                 Card {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("💡 Проблемные темы", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        s.problemThemes.forEach { theme ->
-                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Text("${theme.category}: ${theme.themeName} (${theme.mistakeCount} раз)")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.secondary) // Или Warning
+                            Spacer(Modifier.width(8.dp))
+                            Text("Проблемные темы", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(12.dp))
+
+                        if (s.problemThemes.isEmpty()) {
+                            Text("Пока нет данных", color = Color.Gray, fontSize = 14.sp)
+                        } else {
+                            s.problemThemes.forEach { theme ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("${theme.category}: ${theme.themeName}")
+                                    Text("${theme.mistakeCount} раз", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                }
+                                Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                             }
                         }
                     }
@@ -1814,9 +1755,18 @@ fun StatisticsScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("⭐ Рекомендации", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFA000))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Рекомендации", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(8.dp))
                         s.recommendations.forEach { recommendation ->
-                            Text("• $recommendation", modifier = Modifier.padding(vertical = 4.dp))
+                            Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                                Text("•", fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(4.dp))
+                                Text(recommendation)
+                            }
                         }
                     }
                 }
@@ -1826,15 +1776,38 @@ fun StatisticsScreen(
 }
 
 @Composable
-fun StatCard(title: String, value: String) {
+fun StatCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    value: String,
+    subValue: String = "",
+    subValueColor: Color = Color.Gray
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, fontSize = 16.sp, color = Color.Gray)
-            Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (subValue.isNotEmpty()) {
+                Text(subValue, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = subValueColor)
+            }
         }
     }
 }
@@ -1892,6 +1865,479 @@ fun MistakeCountSmall(type: MistakeType, count: Int) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+    }
+}
+// ==================== SETTINGS SCREEN ====================
+@Composable
+fun SettingsScreen(
+    paddingValues: PaddingValues,
+    user: User,
+    container: AppContainer,
+    onLogout: () -> Unit
+) {
+    val viewModel = remember { SettingsViewModel(container) }
+
+    LaunchedEffect(user) {
+        viewModel.init(user)
+    }
+
+    val tempNickname by viewModel.tempNickname
+    val isSoundEnabled by viewModel.isSoundEnabled
+    val selectedThemeName by viewModel.selectedThemeName
+    val message by viewModel.message
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Заголовок
+        item {
+            Text(
+                text = "Настройки",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        }
+
+        // Сообщения
+        if (message != null) {
+            val isError = message!!.startsWith("❌") || message!!.startsWith("Ошибка")
+            val cleanMessage = message!!.replace("✅ ", "").replace("❌ ", "")
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (isError) Icons.Default.Error else Icons.Default.CheckCircle, null, tint = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(cleanMessage, modifier = Modifier.weight(1f))
+                        }
+                        IconButton(onClick = { viewModel.clearMessage() }) { Icon(Icons.Default.Close, null) }
+                    }
+                }
+            }
+        }
+
+        // Профиль
+        item {
+            Card {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Профиль", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = tempNickname,
+                        onValueChange = { viewModel.tempNickname.value = it },
+                        label = { Text("Никнейм") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Edit, null) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Email, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(user.email, color = Color.Gray)
+                    }
+                }
+            }
+        }
+
+        // Параметры
+        item {
+            Card {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Параметры", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Звук
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (isSoundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff, null)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Звуковые эффекты")
+                        }
+                        Switch(
+                            checked = isSoundEnabled,
+                            onCheckedChange = { viewModel.isSoundEnabled.value = it }
+                        )
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+                    // Тема
+                    Text("Тема доски по умолчанию", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    BoardThemes.getAll().chunked(2).forEach { rowThemes ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowThemes.forEach { theme ->
+                                val isSelected = selectedThemeName == theme.name
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.selectedThemeName.value = theme.name },
+                                    label = { Text(theme.name) },
+                                    leadingIcon = if (isSelected) {
+                                        { Icon(Icons.Default.Check, null) }
+                                    } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Кнопка Сохранить
+        item {
+            Button(
+                onClick = { viewModel.saveSettings() },
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Icon(Icons.Default.Save, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Сохранить изменения")
+            }
+        }
+
+        // Кнопка Выход
+        item {
+            OutlinedButton(
+                onClick = { viewModel.logout(onLogout) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Default.Logout, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Выйти из аккаунта")
+            }
+        }
+
+        item {
+            Spacer(Modifier.height(32.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("Версия 1.0.0 (Alpha)", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+// Вспомогательная функция для цвета
+fun MistakeType.getComposeColor(): Color = when (this) {
+    MistakeType.BLUNDER -> Color(0xFFD32F2F)
+    MistakeType.MISTAKE -> Color(0xFFF57C00)
+    MistakeType.INACCURACY -> Color(0xFFFBC02D)
+}
+
+// ==================== DASHBOARD CONTENT ====================
+@Composable
+fun DashboardContent(
+    paddingValues: PaddingValues,
+    user: User,
+    gameViewModel: GameViewModel,
+    onLogout: () -> Unit,
+    onNavigateToTraining: () -> Unit, // Тип указан
+    onNavigateToSettings: () -> Unit  // Тип указан
+
+        )
+    {
+    LaunchedEffect(user.id) {
+        gameViewModel.loadUserData()
+    }
+
+    val recentGames = gameViewModel.userGames.take(2)
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(), // Убрали padding(paddingValues) отсюда
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        // ВАЖНО: Добавляем paddingValues сюда
+        contentPadding = PaddingValues(
+            top = 2.dp + paddingValues.calculateTopPadding(),
+            bottom = 16.dp + paddingValues.calculateBottomPadding(),
+            start = 16.dp,
+            end = 16.dp
+        )
+    ) {
+        // 1. ХЕДЕР
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Аватарка + Ник + Рейтинг
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = user.nickname.first().uppercase(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(12.dp))
+
+                    Column {
+                        Text(user.nickname, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.TrendingUp, null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+                            Spacer(Modifier.width(4.dp))
+                            Text("${user.rating}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                IconButton(onClick = onNavigateToSettings) { // <-- ИСПОЛЬЗУЙТЕ КОЛБЭК
+                    Icon(Icons.Default.Settings, null)}
+            }
+        }
+
+        // 3. ЗАДАЧА ДНЯ
+        item {
+            DailyPuzzleWidget(onClick = onNavigateToTraining)
+        }
+
+        // 4. ПОСЛЕДНИЕ ПАРТИИ
+        item {
+            Text(
+                "Недавние партии",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        if (recentGames.isEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.History, null, tint = Color.Gray)
+                        Text("История пуста", color = Color.Gray)
+                    }
+                }
+            }
+        } else {
+            items(recentGames) { game ->
+                MiniGameCard(game)
+            }
+        }
+
+        // 5. СОВЕТ
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            ) {
+                Row(modifier = Modifier.padding(16.dp)) {
+                    Icon(Icons.Default.Lightbulb, null)
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Совет: Контролируйте центр доски пешками в начале партии.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun MiniGameCard(game: Game) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black)
+                        .border(1.dp, Color.Gray)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Партия #${game.id}", fontWeight = FontWeight.Bold)
+                    Text(game.timeControl ?: "Без контроля", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+            }
+
+            if (game.isAnalyzed()) {
+                Text(
+                    "${game.accuracy?.toInt() ?: 0}%",
+                    fontWeight = FontWeight.Bold,
+                    color = if ((game.accuracy ?: 0.0) > 80) Color(0xFF4CAF50) else Color(0xFFFFA726)
+                )
+            } else {
+                Text("В очереди", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun DailyPuzzleWidget(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(40.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Задача дня", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        "Сложная",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Мини-доска (Неинтерактивная, просто картинка ситуации)
+            // Используем FEN известной задачи
+            val fen = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
+            val board = remember { com.github.bhlangonijr.chesslib.Board().apply { loadFromFen(fen) } }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f) // Широкая, но не высокая
+                    .background(Color.LightGray.copy(alpha = 0.2f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+            ) {
+                // Мы хитро обрезаем доску или показываем её целиком, но маленькую
+                // Для простоты покажем целиком, но отключим клики (так как клик идет на карточку)
+                ChessBoard(
+                    board = board,
+                    modifier = Modifier.fillMaxSize(),
+                    // Отключаем интерактивность, передавая null в onSquareClick
+                    onSquareClick = null
+                )
+
+                // Наложение "Решить"
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Button(onClick = onClick) {
+                        Text("Решить сейчас")
+                    }
+                }
+            }
+
+
+        }
+    }
+}
+
+@Composable
+fun StatsSummaryRow(user: User) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Рейтинг
+        SummaryItem(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.TrendingUp,
+            value = "${user.rating}",
+            label = "Рейтинг",
+            color = MaterialTheme.colorScheme.primaryContainer
+        )
+
+        // Уровень
+        SummaryItem(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.School, // Или Verified
+            value = user.skillLevel.name.take(3), // Сокращение (BEG, INT...)
+            label = "Уровень",
+            color = MaterialTheme.colorScheme.secondaryContainer
+        )
+
+        // Премиум (или другая метрика)
+        SummaryItem(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Default.WorkspacePremium,
+            value = if (user.isPremium) "PRO" else "Free",
+            label = "Статус",
+            color = MaterialTheme.colorScheme.tertiaryContainer
+        )
+    }
+}
+
+@Composable
+fun SummaryItem(modifier: Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector, value: String, label: String, color: Color) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = color)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(text = value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(text = label, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

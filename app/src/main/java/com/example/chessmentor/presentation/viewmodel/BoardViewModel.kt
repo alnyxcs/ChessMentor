@@ -40,6 +40,7 @@ class BoardViewModel : ViewModel() {
     // Последний ход (from -> to)
     val lastMove = mutableStateOf<Pair<Square, Square>?>(null)
 
+    var soundManager: com.example.chessmentor.presentation.ui.components.SoundManager? = null
     /**
      * Загрузить партию из PGN
      */
