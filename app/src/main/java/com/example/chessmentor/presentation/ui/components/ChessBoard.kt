@@ -13,9 +13,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext // <-- ДОБАВЛЕН ИМПОРТ
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,6 +96,9 @@ fun ChessBoard(
     animateMove: Boolean = true,
     onSquareClick: ((Square) -> Unit)? = null
 ) {
+    // Получаем контекст для загрузки ресурсов
+    val context = LocalContext.current // <-- ВАЖНО!
+
     // Состояние анимации
     var animatingPiece by remember { mutableStateOf<PieceAnimation?>(null) }
 
@@ -133,7 +135,7 @@ fun ChessBoard(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(flipped) { // <-- Добавляем flipped как ключ, чтобы он пересоздавался
+                .pointerInput(flipped) {
                     detectTapGestures { offset ->
                         val squareSize = size.width / 8
                         val file = (offset.x / squareSize).toInt()
@@ -200,7 +202,8 @@ fun ChessBoard(
                             piece = piece,
                             x = file * squareSize,
                             y = rank * squareSize,
-                            size = squareSize
+                            size = squareSize,
+                            context = context // <-- Передаем контекст
                         )
                     }
                 }
@@ -226,6 +229,7 @@ fun ChessBoard(
                     x = currentX,
                     y = currentY,
                     size = squareSize,
+                    context = context, // <-- Передаем контекст
                     alpha = 1f
                 )
             }
@@ -284,49 +288,18 @@ fun ChessBoard(
 }
 
 /**
- * Отрисовка фигуры
+ * Отрисовка фигуры (вспомогательная функция)
  */
 private fun DrawScope.drawPiece(
     piece: Piece,
     x: Float,
     y: Float,
     size: Float,
+    context: android.content.Context, // <-- Параметр контекста
     alpha: Float = 1f
 ) {
-    val pieceSymbol = when (piece) {
-        Piece.WHITE_PAWN -> "♙"
-        Piece.WHITE_KNIGHT -> "♘"
-        Piece.WHITE_BISHOP -> "♗"
-        Piece.WHITE_ROOK -> "♖"
-        Piece.WHITE_QUEEN -> "♕"
-        Piece.WHITE_KING -> "♔"
-        Piece.BLACK_PAWN -> "♟"
-        Piece.BLACK_KNIGHT -> "♞"
-        Piece.BLACK_BISHOP -> "♝"
-        Piece.BLACK_ROOK -> "♜"
-        Piece.BLACK_QUEEN -> "♛"
-        Piece.BLACK_KING -> "♚"
-        else -> ""
-    }
-
-    if (pieceSymbol.isNotEmpty()) {
-        drawIntoCanvas { canvas ->
-            val paint = android.graphics.Paint().apply {
-                textSize = size * 0.75f
-                color = android.graphics.Color.BLACK
-                textAlign = android.graphics.Paint.Align.CENTER
-                isAntiAlias = true
-                this.alpha = (alpha * 255).toInt()
-            }
-
-            canvas.nativeCanvas.drawText(
-                pieceSymbol,
-                x + size / 2,
-                y + size * 0.8f,
-                paint
-            )
-        }
-    }
+    // Вызываем наш новый рисовальщик фигур из ChessPieces.kt
+    ChessPieces.draw(this, piece, x, y, size, context, alpha)
 }
 
 /**
