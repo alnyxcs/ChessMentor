@@ -143,7 +143,7 @@ class GameViewModel(
     /**
      * Анализировать партию
      */
-    private fun analyzeGame(gameId: Long) {
+    fun analyzeGame(gameId: Long) {
         viewModelScope.launch {
             try {
                 val input = AnalyzeGameUseCase.Input(gameId = gameId)

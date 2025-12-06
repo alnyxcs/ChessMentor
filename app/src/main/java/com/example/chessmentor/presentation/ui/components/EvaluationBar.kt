@@ -11,7 +11,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
-import kotlin.math.min
 
 /**
  * Шкала оценки позиции
@@ -27,12 +26,18 @@ fun EvaluationBar(
     val whiteColor = Color(0xFFF0F0F0)
     val blackColor = Color(0xFF2C2C2C)
 
-    // Нормализуем оценку (от -1000 до +1000 пешек = -100000 до +100000 сантипешек)
-    val normalizedEval = evaluation.coerceIn(-100000, 100000)
+    // Проверяем, это мат или обычная оценка
+    val isMate = abs(evaluation) > 50000
 
-    // Преобразуем в проценты (0.5 = равенство, 1.0 = белые выигрывают, 0.0 = черные выигрывают)
-    // Используем логистическую функцию для плавного перехода
-    val whiteAdvantage = 1.0f / (1.0f + Math.exp(-normalizedEval / 20000.0)).toFloat()
+    // Вычисляем преимущество белых
+    val whiteAdvantage = if (isMate) {
+        // Для мата: почти полная заливка в пользу выигрывающей стороны
+        if (evaluation > 0) 0.95f else 0.05f
+    } else {
+        // Для обычной оценки: используем логистическую функцию
+        val normalizedEval = evaluation.coerceIn(-100000, 100000)
+        1.0f / (1.0f + Math.exp(-normalizedEval / 20000.0)).toFloat()
+    }
 
     Row(
         modifier = modifier
@@ -52,11 +57,12 @@ fun EvaluationBar(
                     .background(blackColor),
                 contentAlignment = Alignment.Center
             ) {
-                if (evaluation < -50) {
+                // Показываем оценку если чёрные лучше
+                if (evaluation < -50 || (isMate && evaluation < 0)) {
                     Text(
                         text = formatEvaluation(evaluation),
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -70,11 +76,12 @@ fun EvaluationBar(
                     .background(whiteColor),
                 contentAlignment = Alignment.Center
             ) {
-                if (evaluation > 50) {
+                // Показываем оценку если белые лучше
+                if (evaluation > 50 || (isMate && evaluation > 0)) {
                     Text(
                         text = formatEvaluation(evaluation),
                         color = Color.Black,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -85,17 +92,33 @@ fun EvaluationBar(
 
 /**
  * Форматирование оценки для отображения
+ * Поддерживает матовые позиции в формате M1, M2, -M1, -M2
  */
 fun formatEvaluation(evaluation: Int): String {
-    return when {
-        abs(evaluation) >= 100000 -> "M" // Мат
-        else -> {
-            val pawns = evaluation / 100.0
-            when {
-                pawns > 0 -> "+%.1f".format(pawns)
-                pawns < 0 -> "%.1f".format(pawns)
-                else -> "0.0"
-            }
+    // Проверяем, это мат или обычная оценка
+    val isMate = abs(evaluation) > 50000
+
+    return if (isMate) {
+        // Матовая позиция: вычисляем количество ходов до мата
+        val movesToMate = if (evaluation > 0) {
+            (100000 - evaluation) / 100
+        } else {
+            (100000 + evaluation) / 100
+        }
+
+        // Форматируем как M1, M2, -M1, -M2
+        if (evaluation > 0) {
+            "M$movesToMate"
+        } else {
+            "-M$movesToMate"
+        }
+    } else {
+        // Обычная оценка в пешках
+        val pawns = evaluation / 100.0
+        when {
+            pawns > 0 -> "+%.1f".format(pawns)
+            pawns < 0 -> "%.1f".format(pawns)
+            else -> "0.0"
         }
     }
 }

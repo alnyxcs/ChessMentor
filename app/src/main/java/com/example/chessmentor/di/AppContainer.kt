@@ -1,96 +1,103 @@
+// di/AppContainer.kt
 package com.example.chessmentor.di
 
 import android.content.Context
-import com.example.chessmentor.data.local.AppDatabase
-import com.example.chessmentor.data.repository.room.RoomGameRepository
-import com.example.chessmentor.data.repository.room.RoomMistakeRepository
-import com.example.chessmentor.data.repository.room.RoomUserRepository
-import com.example.chessmentor.domain.repository.GameRepository
-import com.example.chessmentor.domain.repository.MistakeRepository
-import com.example.chessmentor.domain.repository.UserRepository
-import com.example.chessmentor.domain.repository.ExerciseRepository
-import com.example.chessmentor.domain.entity.Exercise
-import com.example.chessmentor.domain.entity.ExerciseAttempt
-import com.example.chessmentor.data.local.dao.ExerciseDao
+import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.data.engine.StockfishEngine
-import com.example.chessmentor.data.repository.room.RoomExerciseRepository
+import com.example.chessmentor.data.local.AppDatabase
+import com.example.chessmentor.data.repository.room.*
+import com.example.chessmentor.domain.repository.*
 import com.example.chessmentor.domain.usecase.*
 
+class AppContainer private constructor(private val context: Context) {
 
-/**
- * Контейнер зависимостей приложения, работающий с Room
- */
-class AppContainer(context: Context) { // <-- Принимаем Context
+    companion object {
+        @Volatile
+        private var INSTANCE: AppContainer? = null
 
-    // Создаем экземпляр базы данных
-    private val database = AppDatabase.getInstance(context)
+        fun getInstance(context: Context): AppContainer {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: AppContainer(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
 
-    // ==================== REPOSITORIES ====================
+    // База данных
+    private val database: AppDatabase by lazy {
+        AppDatabase.getInstance(context)
+    }
 
+    // Движок - локальный Stockfish
+    val chessEngine: ChessEngine by lazy {
+        StockfishEngine(context)
+    }
+
+    // DAO
+    private val userDao by lazy { database.userDao() }
+    private val gameDao by lazy { database.gameDao() }
+    private val mistakeDao by lazy { database.mistakeDao() }
+    private val exerciseDao by lazy { database.exerciseDao() }
+
+    // Репозитории
     val userRepository: UserRepository by lazy {
-        RoomUserRepository(database.userDao())
+        RoomUserRepository(userDao)
     }
 
     val gameRepository: GameRepository by lazy {
-        RoomGameRepository(database.gameDao())
+        RoomGameRepository(gameDao)
     }
 
     val mistakeRepository: MistakeRepository by lazy {
-        RoomMistakeRepository(database.mistakeDao())
+        RoomMistakeRepository(mistakeDao)
     }
 
     val exerciseRepository: ExerciseRepository by lazy {
-        RoomExerciseRepository(database.exerciseDao())
+        RoomExerciseRepository(exerciseDao)
     }
 
-    // ==================== USE CASES ====================
-
-    val registerUserUseCase: RegisterUserUseCase by lazy {
+    // Use Cases
+    val registerUserUseCase by lazy {
         RegisterUserUseCase(userRepository)
     }
 
-    val loginUserUseCase: LoginUserUseCase by lazy {
+    val loginUserUseCase by lazy {
         LoginUserUseCase(userRepository)
     }
 
-    val uploadGameUseCase: UploadGameUseCase by lazy {
-        UploadGameUseCase(gameRepository, userRepository)
-    }
-
-    val getUserStatisticsUseCase: GetUserStatisticsUseCase by lazy {
-        GetUserStatisticsUseCase(userRepository, gameRepository, mistakeRepository)
-    }
-
-    val getTrainingExerciseUseCase: GetTrainingExerciseUseCase by lazy {
-            GetTrainingExerciseUseCase(
-                userRepository,
-                mistakeRepository,
-                exerciseRepository
-            )
-    }
-
-    // Движок (Process)
-    val stockfishProcess: StockfishProcess by lazy {
-        StockfishProcess(context) // context доступен в AppContainer
-    }
-
-    // UseCase с движком
-    val analyzeGameUseCase: AnalyzeGameUseCase by lazy {
-        AnalyzeGameUseCase(
-            gameRepository,
-            mistakeRepository,
-            userRepository,
-            stockfishProcess // <-- ПЕРЕДАЕМ ДВИЖОК
+    val uploadGameUseCase by lazy {
+        UploadGameUseCase(
+            gameRepository = gameRepository,
+            userRepository = userRepository
         )
     }
-    companion object {
-        @Volatile
-        private var instance: AppContainer? = null
 
-        fun getInstance(context: Context): AppContainer {
-            return instance ?: synchronized(this) {
-                instance ?: AppContainer(context).also { instance = it }
-            }
-        }
+    val analyzeGameUseCase by lazy {
+        AnalyzeGameUseCase(
+            gameRepository = gameRepository,
+            mistakeRepository = mistakeRepository,
+            userRepository = userRepository,
+            chessEngine = chessEngine
+        )
+    }
+
+    val getTrainingExerciseUseCase by lazy {
+        GetTrainingExerciseUseCase(
+            userRepository = userRepository,
+            mistakeRepository = mistakeRepository,
+            exerciseRepository = exerciseRepository
+        )
+    }
+
+    val getUserStatisticsUseCase by lazy {
+        GetUserStatisticsUseCase(
+            userRepository = userRepository,
+            gameRepository = gameRepository,
+            mistakeRepository = mistakeRepository
+        )
+    }
+
+    // Очистка ресурсов
+    fun cleanup() {
+        chessEngine.destroy()
     }
 }
