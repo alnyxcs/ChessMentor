@@ -12,7 +12,6 @@ import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
 import com.example.chessmentor.domain.usecase.UploadGameUseCase
 import kotlinx.coroutines.launch
-import java.time.Instant
 
 /**
  * ViewModel для управления партиями
@@ -51,6 +50,9 @@ class GameViewModel(
     // Сообщения
     var message = mutableStateOf("")
     var isLoading = mutableStateOf(false)
+
+    // ДОБАВЛЕНО: Храним evaluations последней проанализированной игры
+    private var latestEvaluations = mutableListOf<Int>()
 
     /**
      * Установить текущего пользователя и загрузить его данные
@@ -153,11 +155,15 @@ class GameViewModel(
                         message.value = "✅ Анализ завершён! Найдено ${result.mistakes.size} ошибок"
                         isLoading.value = false
 
+                        // ИСПРАВЛЕНО: Сохраняем evaluations
+                        latestEvaluations.clear()
+                        latestEvaluations.addAll(result.evaluations)
+
                         // Обновляем данные
                         loadUserData()
 
-                        // Открываем партию для просмотра
-                        selectGame(result.game)
+                        // Открываем партию для просмотра С ОЦЕНКАМИ
+                        selectGameWithEvaluations(result.game, result.evaluations)
                     }
                     is AnalyzeGameUseCase.Result.Error -> {
                         message.value = "❌ Ошибка анализа: ${result.message}"
@@ -172,7 +178,24 @@ class GameViewModel(
     }
 
     /**
-     * Выбрать партию для просмотра
+     * ИСПРАВЛЕНО: Выбрать партию С оценками (после анализа)
+     */
+    private fun selectGameWithEvaluations(game: Game, evaluations: List<Int>) {
+        selectedGame.value = game
+
+        if (game.id != null) {
+            val mistakes = getMistakesForGame(game.id!!)
+            selectedGameMistakes.clear()
+            selectedGameMistakes.addAll(mistakes.sortedBy { it.moveNumber })
+        }
+
+        // Сохраняем оценки для передачи в BoardViewModel
+        latestEvaluations.clear()
+        latestEvaluations.addAll(evaluations)
+    }
+
+    /**
+     * Выбрать партию для просмотра (БЕЗ оценок - для списка игр)
      */
     fun selectGame(game: Game) {
         selectedGame.value = game
@@ -183,6 +206,13 @@ class GameViewModel(
             selectedGameMistakes.clear()
             selectedGameMistakes.addAll(mistakes.sortedBy { it.moveNumber })
         }
+    }
+
+    /**
+     * ДОБАВЛЕНО: Получить evaluations для передачи в BoardViewModel
+     */
+    fun getLatestEvaluations(): List<Int> {
+        return latestEvaluations.toList()
     }
 
     /**

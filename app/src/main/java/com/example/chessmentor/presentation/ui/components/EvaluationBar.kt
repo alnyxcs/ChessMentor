@@ -1,88 +1,83 @@
+// presentation/ui/components/EvaluationBar.kt
+
 package com.example.chessmentor.presentation.ui.components
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.abs
+import com.example.chessmentor.data.engine.ChessEngine
+import kotlin.math.exp
 
-/**
- * Шкала оценки позиции
- *
- * @param evaluation Оценка в сантипешках (0 = равенство, + = белые лучше, - = черные лучше)
- * @param modifier Модификатор
- */
 @Composable
 fun EvaluationBar(
     evaluation: Int,
     modifier: Modifier = Modifier
 ) {
-    val whiteColor = Color(0xFFF0F0F0)
-    val blackColor = Color(0xFF2C2C2C)
+    val isMate = ChessEngine.isMateScore(evaluation)
+    val whiteAdvantage = calculateWhiteAdvantage(evaluation, isMate)
 
-    // Проверяем, это мат или обычная оценка
-    val isMate = abs(evaluation) > 50000
+    val animatedAdvantage by animateFloatAsState(
+        targetValue = whiteAdvantage,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label = "advantageAnimation"
+    )
 
-    // Вычисляем преимущество белых
-    val whiteAdvantage = if (isMate) {
-        // Для мата: почти полная заливка в пользу выигрывающей стороны
-        if (evaluation > 0) 0.95f else 0.05f
-    } else {
-        // Для обычной оценки: используем логистическую функцию
-        val normalizedEval = evaluation.coerceIn(-100000, 100000)
-        1.0f / (1.0f + Math.exp(-normalizedEval / 20000.0)).toFloat()
-    }
+    val whiteColor = Color.White
+    val blackColor = Color(0xFF1A1A1A)
+    val borderColor = Color.Gray
 
-    Row(
+    Box(
         modifier = modifier
-            .width(40.dp)
-            .fillMaxHeight()
+            .clip(RoundedCornerShape(4.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .weight(1f)
-        ) {
-            // Черная часть (сверху)
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Верхняя часть: БЕЛЫЕ
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f - whiteAdvantage)
-                    .background(blackColor),
+                    .weight(animatedAdvantage.coerceAtLeast(0.02f))
+                    .background(whiteColor),
                 contentAlignment = Alignment.Center
             ) {
-                // Показываем оценку если чёрные лучше
-                if (evaluation < -50 || (isMate && evaluation < 0)) {
+                if (animatedAdvantage > 0.55f) {
                     Text(
-                        text = formatEvaluation(evaluation),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        text = ChessEngine.formatEvaluation(evaluation),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
-            // Белая часть (снизу)
+            // Нижняя часть: ЧЁРНЫЕ
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(whiteAdvantage)
-                    .background(whiteColor),
+                    .weight((1f - animatedAdvantage).coerceAtLeast(0.02f))
+                    .background(blackColor),
                 contentAlignment = Alignment.Center
             ) {
-                // Показываем оценку если белые лучше
-                if (evaluation > 50 || (isMate && evaluation > 0)) {
+                if (animatedAdvantage < 0.45f) {
                     Text(
-                        text = formatEvaluation(evaluation),
-                        color = Color.Black,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        text = ChessEngine.formatEvaluation(evaluation),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -90,35 +85,13 @@ fun EvaluationBar(
     }
 }
 
-/**
- * Форматирование оценки для отображения
- * Поддерживает матовые позиции в формате M1, M2, -M1, -M2
- */
-fun formatEvaluation(evaluation: Int): String {
-    // Проверяем, это мат или обычная оценка
-    val isMate = abs(evaluation) > 50000
-
-    return if (isMate) {
-        // Матовая позиция: вычисляем количество ходов до мата
-        val movesToMate = if (evaluation > 0) {
-            (100000 - evaluation) / 100
-        } else {
-            (100000 + evaluation) / 100
-        }
-
-        // Форматируем как M1, M2, -M1, -M2
-        if (evaluation > 0) {
-            "M$movesToMate"
-        } else {
-            "-M$movesToMate"
-        }
-    } else {
-        // Обычная оценка в пешках
-        val pawns = evaluation / 100.0
-        when {
-            pawns > 0 -> "+%.1f".format(pawns)
-            pawns < 0 -> "%.1f".format(pawns)
-            else -> "0.0"
-        }
+private fun calculateWhiteAdvantage(evaluation: Int, isMate: Boolean): Float {
+    if (isMate) {
+        return if (evaluation > 0) 0.98f else 0.02f
     }
+
+    val cappedEval = evaluation.coerceIn(-3000, 3000)
+    val normalized = 1.0f / (1.0f + exp(-cappedEval / 400.0f).toFloat())
+
+    return normalized.coerceIn(0.02f, 0.98f)
 }

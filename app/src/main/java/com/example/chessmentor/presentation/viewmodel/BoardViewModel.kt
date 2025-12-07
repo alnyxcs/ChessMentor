@@ -1,87 +1,73 @@
+// presentation/viewmodel/BoardViewModel.kt
 package com.example.chessmentor.presentation.viewmodel
 
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
+import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.Game
+import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.Mistake
+import com.example.chessmentor.domain.entity.MoveQuality
+import com.example.chessmentor.presentation.ui.components.SoundManager
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.pgn.PgnHolder
+import java.io.File
+import kotlin.math.abs
 
-/**
- * ViewModel для управления шахматной доской и навигацией по ходам
- */
 class BoardViewModel : ViewModel() {
 
-    // Текущая доска
     val board = mutableStateOf(Board())
-
-    // Список всех ходов партии
     val moves = mutableStateListOf<Move>()
-
-    // Список всех ходов в нотации (для отображения)
     val moveNotations = mutableStateListOf<String>()
-
-    // Текущий индекс хода
     val currentMoveIndex = mutableIntStateOf(-1)
-
-    // Оценки позиций (индекс -> оценка в сантипешках)
     val evaluations = mutableStateListOf<Int>()
-
-    // Ошибки в партии
     val mistakes = mutableStateListOf<Mistake>()
-
-    // Подсвеченные поля
     val highlightedSquares = mutableStateOf<Set<Square>>(emptySet())
-
-    // Последний ход (from -> to)
     val lastMove = mutableStateOf<Pair<Square, Square>?>(null)
 
-    var soundManager: com.example.chessmentor.presentation.ui.components.SoundManager? = null
-    /**
-     * Загрузить партию из PGN
-     */
-    /**
-     * Загрузить партию из PGN
-     */
-    /**
-     * Загрузить партию из PGN
-     */
-    /**
-     * Загрузить партию из PGN
-     */
-    /**
-     * Загрузить партию из PGN
-     */
-    /**
-     * Загрузить партию из PGN
-     */
-    fun loadGame(game: Game, gameMistakes: List<Mistake>) {
+    private var playerColor: ChessColor = ChessColor.WHITE
+
+    var soundManager: SoundManager? = null
+
+    companion object {
+        private const val TAG = "BoardViewModel"
+
+        // Пороги для определения качества ходов (в сантипешках)
+        // Эти значения откалиброваны под типичную игру
+        private const val BRILLIANT_THRESHOLD = 200    // Улучшение на 2+ пешки в плохой позиции
+        private const val GREAT_MOVE_THRESHOLD = 100   // Улучшение на 1+ пешку
+        private const val GOOD_MOVE_THRESHOLD = 30     // Небольшое улучшение
+
+        private const val INACCURACY_THRESHOLD = 50    // Потеря 0.5 пешки
+        private const val MISTAKE_THRESHOLD = 100      // Потеря 1 пешки
+        private const val BLUNDER_THRESHOLD = 200      // Потеря 2+ пешек
+        private const val MISSED_WIN_THRESHOLD = 300   // Упустил выигрыш 3+ пешек
+
+        // Порог "плохой позиции" для определения блестящих ходов
+        private const val BAD_POSITION_THRESHOLD = 150 // -1.5 пешки и хуже
+    }
+
+    fun loadGame(game: Game, gameMistakes: List<Mistake>, realEvaluations: List<Int> = emptyList()) {
         try {
             println("=== LOADING GAME ===")
 
-            // Очищаем предыдущее состояние
+            playerColor = game.playerColor
+
             moves.clear()
             moveNotations.clear()
             evaluations.clear()
             mistakes.clear()
             mistakes.addAll(gameMistakes)
 
-            // Создаём временный файл для PGN
-            val tempFile = java.io.File.createTempFile("chess_game", ".pgn")
+            val tempFile = File.createTempFile("chess_game", ".pgn")
             tempFile.writeText(game.pgnData)
 
-            println("Temp file created: ${tempFile.absolutePath}")
-            println("PGN content: ${game.pgnData}")
-
-            // Создаём PgnHolder с путём к файлу
             val pgnHolder = PgnHolder(tempFile.absolutePath)
             pgnHolder.loadPgn()
-
-            // Удаляем временный файл
             tempFile.delete()
 
             if (pgnHolder.games.isEmpty()) {
@@ -90,97 +76,71 @@ class BoardViewModel : ViewModel() {
             }
 
             val pgnGame = pgnHolder.games[0]
-
-            // Получаем ходы напрямую из PGN игры
             val halfMoves = pgnGame.halfMoves
 
-            println("Half moves from PGN: ${halfMoves.size}")
-
-            // Добавляем ходы напрямую
             moves.addAll(halfMoves)
 
-            // Создаём нотации для отображения
             var moveNumber = 1
             halfMoves.forEachIndexed { index, move ->
                 val notation = if (index % 2 == 0) {
-                    // Ход белых
                     "$moveNumber. ${move.san}"
                 } else {
-                    // Ход чёрных
-                    move.san
+                    "${moveNumber}... ${move.san}"
                 }
                 moveNotations.add(notation)
 
-                // Увеличиваем номер хода после хода чёрных
                 if (index % 2 == 1) {
                     moveNumber++
                 }
-
-                println("Move $index: $notation (from=${move.from}, to=${move.to})")
             }
 
-            println("Total moves loaded: ${moves.size}")
-            println("Move notations count: ${moveNotations.size}")
+            if (realEvaluations.isNotEmpty()) {
+                evaluations.addAll(realEvaluations)
+                println("✅ Loaded ${realEvaluations.size} REAL evaluations")
 
-            // Генерируем оценки
-            generateEvaluations()
+                // Отладка: выводим первые 10 оценок
+                println("First evaluations: ${realEvaluations.take(10)}")
+            } else {
+                generateEvaluations()
+                println("⚠️ Generated ${evaluations.size} MOCK evaluations")
+            }
 
-            // Возвращаемся в начальную позицию
             goToStart()
 
-            println("=== GAME LOADED SUCCESSFULLY ===")
+            println("=== GAME LOADED: ${moves.size} moves, ${evaluations.size} evals ===")
 
         } catch (e: Exception) {
             println("ERROR loading game: ${e.message}")
             e.printStackTrace()
         }
     }
-    /**
-     * Генерация оценок позиций (заглушка)
-     * В реальном приложении здесь будет интеграция с Stockfish
-     */
 
     private fun generateEvaluations() {
         evaluations.clear()
-        evaluations.add(0) // Начальная позиция = равенство
+        evaluations.add(0)
 
-        // Для каждого хода генерируем оценку на основе ошибок
         var currentEval = 0
         moves.forEachIndexed { index, _ ->
-            // Проверяем есть ли ошибка на этом ходу
             val moveNumber = (index / 2) + 1
             val isWhiteMove = index % 2 == 0
-            val mistake = mistakes.find { it.moveNumber == moveNumber && isWhiteMove }
+            val currentColor = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK
+            val mistake = mistakes.find { it.moveNumber == moveNumber && it.color == currentColor }
 
             if (mistake != null) {
-                // Если ход белых - оценка падает (минус), если черных - растёт (плюс)
                 currentEval += if (isWhiteMove) {
                     -mistake.evaluationLoss
                 } else {
                     mistake.evaluationLoss
                 }
             } else {
-                // Небольшое случайное изменение для реалистичности
-                currentEval += if (isWhiteMove) {
-                    (-10..10).random()
-                } else {
-                    (-10..10).random()
-                }
+                currentEval += (-10..10).random()
             }
 
-            // Ограничиваем диапазон
             currentEval = currentEval.coerceIn(-1500, 1500)
             evaluations.add(currentEval)
         }
     }
 
-    /**
-     * Определение критических моментов партии
-     */
-
-    /**
-     * Перейти к началу партии
-     */
     fun goToStart() {
         board.value = Board()
         currentMoveIndex.intValue = -1
@@ -188,9 +148,6 @@ class BoardViewModel : ViewModel() {
         highlightedSquares.value = emptySet()
     }
 
-    /**
-     * Перейти к концу партии
-     */
     fun goToEnd() {
         goToStart()
 
@@ -206,17 +163,12 @@ class BoardViewModel : ViewModel() {
             }
 
             updateHighlights()
-
-            println("Went to end, total moves: ${moves.size}")
         } catch (e: Exception) {
             println("ERROR going to end: ${e.message}")
             e.printStackTrace()
         }
     }
 
-    /**
-     * Перейти на один ход вперёд
-     */
     fun goToNextMove() {
         if (currentMoveIndex.intValue < moves.size - 1) {
             currentMoveIndex.intValue++
@@ -226,8 +178,6 @@ class BoardViewModel : ViewModel() {
                 board.value.doMove(move)
                 lastMove.value = Pair(move.from, move.to)
                 updateHighlights()
-
-                println("Next move: ${move.san}, index: ${currentMoveIndex.intValue}")
             } catch (e: Exception) {
                 println("ERROR doing move: ${e.message}")
                 e.printStackTrace()
@@ -235,9 +185,6 @@ class BoardViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Перейти на один ход назад
-     */
     fun goToPreviousMove() {
         if (currentMoveIndex.intValue >= 0) {
             board.value.undoMove()
@@ -254,29 +201,37 @@ class BoardViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Обновить подсветку полей
-     */
+    fun goToMove(moveIndex: Int) {
+        if (moveIndex < -1 || moveIndex >= moves.size) return
+
+        goToStart()
+
+        for (i in 0..moveIndex) {
+            if (i < moves.size) {
+                currentMoveIndex.intValue = i
+                board.value.doMove(moves[i])
+            }
+        }
+
+        if (moveIndex >= 0 && moveIndex < moves.size) {
+            val move = moves[moveIndex]
+            lastMove.value = Pair(move.from, move.to)
+        }
+
+        updateHighlights()
+    }
+
     private fun updateHighlights() {
         val highlights = mutableSetOf<Square>()
 
-        // Подсвечиваем поле ошибочного хода
-        if (currentMoveIndex.intValue >= 0) {
-            val moveNumber = (currentMoveIndex.intValue / 2) + 1
-            val mistake = mistakes.find { it.moveNumber == moveNumber }
-
-            if (mistake != null && currentMoveIndex.intValue % 2 == 0) {
-                // Это ход с ошибкой
-                lastMove.value?.second?.let { highlights.add(it) }
-            }
+        val currentMistake = getCurrentMistake()
+        if (currentMistake != null) {
+            lastMove.value?.second?.let { highlights.add(it) }
         }
 
         highlightedSquares.value = highlights
     }
 
-    /**
-     * Получить текущую оценку позиции
-     */
     fun getCurrentEvaluation(): Int {
         val index = currentMoveIndex.intValue + 1
         return if (index in evaluations.indices) {
@@ -286,9 +241,6 @@ class BoardViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Получить текущий ход в нотации
-     */
     fun getCurrentMoveNotation(): String {
         return if (currentMoveIndex.intValue >= 0 && currentMoveIndex.intValue < moveNotations.size) {
             moveNotations[currentMoveIndex.intValue]
@@ -297,72 +249,178 @@ class BoardViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Получить информацию об ошибке на текущем ходу
-     */
     fun getCurrentMistake(): Mistake? {
         if (currentMoveIndex.intValue >= 0) {
             val moveNumber = (currentMoveIndex.intValue / 2) + 1
-            return mistakes.find { it.moveNumber == moveNumber }
+            val isWhiteMove = currentMoveIndex.intValue % 2 == 0
+            val currentColor = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK
+
+            return mistakes.find {
+                it.moveNumber == moveNumber && it.color == currentColor
+            }
         }
         return null
     }
+
     /**
      * Определение ключевых моментов партии
+     *
+     * Логика:
+     * - evaluations[0] = начальная позиция
+     * - evaluations[i] = оценка ПОСЛЕ хода с индексом (i-1)
+     * - Все оценки с точки зрения БЕЛЫХ (+ = хорошо белым)
+     *
+     * Для определения качества хода:
+     * - Смотрим изменение оценки с точки зрения ИГРОКА (не стороны, делающей ход)
+     * - Если игрок белый: улучшение = оценка выросла
+     * - Если игрок чёрный: улучшение = оценка упала (стало лучше чёрным)
      */
-    fun getKeyMoments(): List<com.example.chessmentor.presentation.ui.components.KeyMoment> {
-        val keyMoments = mutableListOf<com.example.chessmentor.presentation.ui.components.KeyMoment>()
+    fun getKeyMoments(): List<KeyMoment> {
+        val keyMoments = mutableListOf<KeyMoment>()
 
-        evaluations.forEachIndexed { index, evaluation ->
-            if (index == 0) return@forEachIndexed
+        if (evaluations.size < 2 || moves.isEmpty()) {
+            println("getKeyMoments: Not enough data (evals=${evaluations.size}, moves=${moves.size})")
+            return keyMoments
+        }
 
-            val previousEval = evaluations[index - 1]
-            val change = evaluation - previousEval
-            val absChange = kotlin.math.abs(change)
+        println("=== CALCULATING KEY MOMENTS ===")
+        println("Player color: $playerColor")
+        println("Total evaluations: ${evaluations.size}, Total moves: ${moves.size}")
 
-            // Определяем качество
-            val quality = when {
-                // Если ход за нас и оценка выросла
-                (index % 2 == 0 && change > 500) || (index % 2 != 0 && change < -500) ->
-                    com.example.chessmentor.presentation.ui.components.MoveQuality.BRILLIANT
-                (index % 2 == 0 && change > 200) || (index % 2 != 0 && change < -200) ->
-                    com.example.chessmentor.presentation.ui.components.MoveQuality.GREAT_MOVE
+        for (moveIndex in 0 until moves.size) {
+            // Проверяем что есть оценки до и после хода
+            if (moveIndex + 1 >= evaluations.size) break
 
-                // Ошибки
-                absChange > 500 -> com.example.chessmentor.presentation.ui.components.MoveQuality.BLUNDER
-                absChange > 200 -> com.example.chessmentor.presentation.ui.components.MoveQuality.MISTAKE
-                absChange > 100 -> com.example.chessmentor.presentation.ui.components.MoveQuality.INACCURACY
+            val evalBefore = evaluations[moveIndex]      // Оценка ДО хода
+            val evalAfter = evaluations[moveIndex + 1]   // Оценка ПОСЛЕ хода
 
-                else -> null
+            val isWhiteMove = moveIndex % 2 == 0
+            val movingSide = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK
+            val isPlayerMove = (movingSide == playerColor)
+
+            // Изменение оценки (с точки зрения белых)
+            val rawChange = evalAfter - evalBefore
+
+            // Изменение с точки зрения ИГРОКА
+            // Если игрок белый: + = хорошо
+            // Если игрок чёрный: - = хорошо (инвертируем)
+            val changeForPlayer = if (playerColor == ChessColor.WHITE) rawChange else -rawChange
+
+            // Для ходов игрока: положительное изменение = улучшение
+            // Для ходов соперника: отрицательное изменение (для игрока) = соперник улучшил свою позицию
+            val effectiveChange = if (isPlayerMove) changeForPlayer else -changeForPlayer
+
+            // Позиция игрока ДО хода (для определения "сложной позиции")
+            val playerPositionBefore = if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore
+
+            // Определяем качество хода
+            val quality = classifyMoveQuality(
+                effectiveChange = effectiveChange,
+                isPlayerMove = isPlayerMove,
+                playerPositionBefore = playerPositionBefore
+            )
+
+            // Логируем только значимые ходы для отладки
+            if (quality != null || abs(rawChange) > 30) {
+                val moveNum = (moveIndex / 2) + 1
+                val side = if (isWhiteMove) "W" else "B"
+                println("Move $moveNum$side (${moves[moveIndex].san}): " +
+                        "eval $evalBefore → $evalAfter (raw: $rawChange, forPlayer: $changeForPlayer) " +
+                        "isPlayer=$isPlayerMove quality=$quality")
             }
 
-            if (quality != null && index - 1 < moves.size) {
+            if (quality != null) {
                 keyMoments.add(
-                    com.example.chessmentor.presentation.ui.components.KeyMoment(
-                        moveIndex = index - 1,
-                        san = moves[index - 1].san,
+                    KeyMoment(
+                        moveIndex = moveIndex,
+                        san = moves[moveIndex].san,
                         quality = quality,
-                        evaluation = evaluation,
-                        evaluationChange = change
+                        evaluationBefore = evalBefore,
+                        evaluationAfter = evalAfter,
+                        evaluationChange = rawChange,
+                        isPlayerMove = isPlayerMove,
+                        comment = generateMoveComment(quality, effectiveChange)
                     )
                 )
             }
         }
 
+        println("=== FOUND ${keyMoments.size} KEY MOMENTS ===")
+        keyMoments.forEach { m ->
+            println("  ${m.quality}: move ${m.moveIndex} (${m.san}), change=${m.evaluationChange}")
+        }
+
+        // Сортируем по значимости (абсолютное изменение), но ограничиваем количество
         return keyMoments
+            .sortedByDescending { abs(it.evaluationChange) }
+            .take(15) // Не больше 15 ключевых моментов
     }
+
     /**
-     * Перейти к конкретному ходу
+     * Классификация качества хода
+     *
+     * @param effectiveChange - изменение оценки с точки зрения того, хорошо это или плохо
+     *                         Положительное = хороший ход, отрицательное = плохой
+     * @param isPlayerMove - это ход игрока или соперника
+     * @param playerPositionBefore - позиция игрока до хода (для определения "блестящих" ходов)
      */
-    fun goToMove(moveIndex: Int) {
-        if (moveIndex < -1 || moveIndex >= moves.size) return
+    private fun classifyMoveQuality(
+        effectiveChange: Int,
+        isPlayerMove: Boolean,
+        playerPositionBefore: Int
+    ): MoveQuality? {
 
-        // Возвращаемся в начало
-        goToStart()
+        // Для ходов ИГРОКА
+        if (isPlayerMove) {
+            return when {
+                // Блестящий ход: значительное улучшение в плохой/равной позиции
+                effectiveChange >= BRILLIANT_THRESHOLD &&
+                        playerPositionBefore < BAD_POSITION_THRESHOLD -> MoveQuality.BRILLIANT
 
-        // Проигрываем ходы до нужного
-        for (i in 0..moveIndex) {
-            goToNextMove()
+                // Отличный ход: хорошее улучшение позиции
+                effectiveChange >= GREAT_MOVE_THRESHOLD -> MoveQuality.GREAT_MOVE
+
+                // Зевок: потеря 2+ пешек
+                effectiveChange <= -BLUNDER_THRESHOLD -> MoveQuality.BLUNDER
+
+                // Ошибка: потеря 1-2 пешек
+                effectiveChange <= -MISTAKE_THRESHOLD -> MoveQuality.MISTAKE
+
+                // Неточность: потеря 0.5-1 пешки
+                effectiveChange <= -INACCURACY_THRESHOLD -> MoveQuality.INACCURACY
+
+                // Остальные ходы не показываем как ключевые
+                else -> null
+            }
+        }
+        // Для ходов СОПЕРНИКА (показываем только очень значимые)
+        else {
+            return when {
+                // Соперник сделал отличный ход (сильно ухудшил нашу позицию)
+                effectiveChange >= BLUNDER_THRESHOLD -> MoveQuality.GREAT_MOVE
+
+                // Соперник зевнул (мы можем воспользоваться)
+                effectiveChange <= -BLUNDER_THRESHOLD -> MoveQuality.BLUNDER
+
+                // Остальные ходы соперника не показываем
+                else -> null
+            }
+        }
+    }
+
+    private fun generateMoveComment(quality: MoveQuality, change: Int): String {
+        val pawns = abs(change) / 100.0
+        return when (quality) {
+            MoveQuality.BRILLIANT -> "Блестящий ход! Улучшение на %.1f пешки".format(pawns)
+            MoveQuality.GREAT_MOVE -> "Отличный ход"
+            MoveQuality.BEST_MOVE -> "Лучший ход в позиции"
+            MoveQuality.EXCELLENT -> "Превосходно"
+            MoveQuality.GOOD -> "Хороший ход"
+            MoveQuality.BOOK -> "Теоретический ход"
+            MoveQuality.INACCURACY -> "Неточность (−%.1f)".format(pawns)
+            MoveQuality.MISTAKE -> "Ошибка (−%.1f)".format(pawns)
+            MoveQuality.BLUNDER -> "Зевок! Потеря %.1f пешки".format(pawns)
+            MoveQuality.MISSED_WIN -> "Упущена победа"
         }
     }
 }

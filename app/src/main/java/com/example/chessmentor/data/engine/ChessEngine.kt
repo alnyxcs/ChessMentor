@@ -3,38 +3,42 @@ package com.example.chessmentor.data.engine
 
 import kotlin.math.abs
 
-/**
- * Интерфейс шахматного движка
- */
 interface ChessEngine {
 
     suspend fun init(): Boolean
-
     suspend fun evaluate(fen: String, depthLimit: Int = 15): Int
-
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
-
     fun destroy()
 
     companion object {
         const val MATE_VALUE = 100000
+        const val MATE_THRESHOLD = 90000
 
-        fun isMateScore(score: Int): Boolean = abs(score) > 50000
+        /**
+         * Проверяет, является ли оценка матовой
+         */
+        fun isMateScore(score: Int): Boolean = abs(score) >= MATE_THRESHOLD
 
+        /**
+         * Получить количество ходов до мата
+         * @return положительное число = мат за белых, отрицательное = мат за чёрных
+         */
         fun getMateInMoves(score: Int): Int {
-            return if (score > 0) {
-                (MATE_VALUE - score) / 100
-            } else {
-                -(MATE_VALUE + score) / 100
-            }
+            if (!isMateScore(score)) return 0
+            val moves = (MATE_VALUE - abs(score)) / 100
+            return if (score > 0) moves else -moves
         }
 
+        /**
+         * Форматирование оценки для UI
+         */
         fun formatEvaluation(score: Int): String {
             return if (isMateScore(score)) {
-                val moves = getMateInMoves(score)
-                if (score > 0) "M$moves" else "-M$moves"
+                val moves = abs(getMateInMoves(score))
+                if (score > 0) "+M$moves" else "-M$moves"
             } else {
-                String.format("%.1f", score / 100.0)
+                val pawns = score / 100.0
+                if (pawns >= 0) "+%.1f".format(pawns) else "%.1f".format(pawns)
             }
         }
     }

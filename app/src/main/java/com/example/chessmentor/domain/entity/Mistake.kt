@@ -22,7 +22,7 @@ data class Mistake(
     val gameId: Long,
     val themeId: Long,
     val moveNumber: Int,
-    val color: ChessColor,  // Цвет стороны (белые/чёрные)
+    val color: ChessColor,
     val evaluationLoss: Int,
     val mistakeType: MistakeType,
     val bestMove: String,
@@ -37,9 +37,10 @@ data class Mistake(
         require(userMove.isNotBlank()) { "Ход игрока не может быть пустым" }
     }
 
-    fun getDescription(): String = mistakeType.getDescription()
-    fun getMistakeColor(): String = mistakeType.getColor()  // ← ПЕРЕИМЕНОВАНО
+    fun getDescription(): String = mistakeType.getDisplayName()  // ИСПРАВЛЕНО
+
     fun getEmoji(): String = mistakeType.getEmoji()
+
     fun getEvaluationLossInPawns(): Double = evaluationLoss / 100.0
 
     fun getFormattedDescription(): String {
@@ -50,6 +51,7 @@ data class Mistake(
     }
 
     fun isCritical(): Boolean = mistakeType == MistakeType.BLUNDER
+
     fun getSeverity(): Int = when (mistakeType) {
         MistakeType.BLUNDER -> 10
         MistakeType.MISTAKE -> 6
