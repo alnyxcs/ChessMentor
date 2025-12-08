@@ -5,9 +5,11 @@ import android.content.Context
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.data.engine.StockfishEngine
 import com.example.chessmentor.data.local.AppDatabase
+import com.example.chessmentor.data.repository.SharedPrefsEngineSettingsRepository
 import com.example.chessmentor.data.repository.room.*
 import com.example.chessmentor.domain.repository.*
 import com.example.chessmentor.domain.usecase.*
+
 
 class AppContainer private constructor(private val context: Context) {
 
@@ -27,6 +29,11 @@ class AppContainer private constructor(private val context: Context) {
         AppDatabase.getInstance(context)
     }
 
+    // ✅ НОВОЕ: Настройки движка
+    val engineSettingsRepository: EngineSettingsRepository by lazy {
+        SharedPrefsEngineSettingsRepository(context)
+    }
+
     // Движок - локальный Stockfish
     val chessEngine: ChessEngine by lazy {
         StockfishEngine(context)
@@ -37,6 +44,7 @@ class AppContainer private constructor(private val context: Context) {
     private val gameDao by lazy { database.gameDao() }
     private val mistakeDao by lazy { database.mistakeDao() }
     private val exerciseDao by lazy { database.exerciseDao() }
+    private val analyzedMoveDao by lazy { database.analyzedMoveDao() }
 
     // Репозитории
     val userRepository: UserRepository by lazy {
@@ -55,6 +63,10 @@ class AppContainer private constructor(private val context: Context) {
         RoomExerciseRepository(exerciseDao)
     }
 
+    val analyzedMoveRepository: AnalyzedMoveRepository by lazy {
+        RoomAnalyzedMoveRepository(analyzedMoveDao)
+    }
+
     // Use Cases
     val registerUserUseCase by lazy {
         RegisterUserUseCase(userRepository)
@@ -71,12 +83,15 @@ class AppContainer private constructor(private val context: Context) {
         )
     }
 
+    // ✅ ОБНОВЛЕНО: Передаём настройки движка
     val analyzeGameUseCase by lazy {
         AnalyzeGameUseCase(
             gameRepository = gameRepository,
             mistakeRepository = mistakeRepository,
+            analyzedMoveRepository = analyzedMoveRepository,
             userRepository = userRepository,
-            chessEngine = chessEngine
+            chessEngine = chessEngine,
+            engineSettingsRepository = engineSettingsRepository  // ✅ НОВОЕ
         )
     }
 

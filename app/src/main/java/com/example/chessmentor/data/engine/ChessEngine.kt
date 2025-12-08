@@ -10,6 +10,9 @@ interface ChessEngine {
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
     fun destroy()
 
+    // ✅ НОВОЕ: Установка опций движка (Threads, Hash, и т.д.)
+    suspend fun setOption(name: String, value: String)
+
     companion object {
         const val MATE_VALUE = 100000
         const val MATE_THRESHOLD = 90000

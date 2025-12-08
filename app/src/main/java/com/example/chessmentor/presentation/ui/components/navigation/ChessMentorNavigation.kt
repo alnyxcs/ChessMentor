@@ -1,6 +1,7 @@
 // presentation/ui/navigation/ChessMentorNavigation.kt
-package com.example.chessmentor.presentation.ui.navigation
+package com.example.chessmentor.presentation.ui.components.navigation
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,10 +17,19 @@ import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.domain.usecase.LoginUserUseCase
 import com.example.chessmentor.domain.usecase.RegisterUserUseCase
 import com.example.chessmentor.presentation.ui.components.screen.GameViewScreen
+import com.example.chessmentor.presentation.ui.components.screen.GamesListScreen
+import com.example.chessmentor.presentation.ui.components.screen.HomeScreen
+import com.example.chessmentor.presentation.ui.components.screen.SettingsScreen
+import com.example.chessmentor.presentation.ui.components.screen.StatisticsScreen
+import com.example.chessmentor.presentation.ui.components.screen.SummaryScreen
+import com.example.chessmentor.presentation.ui.components.screen.TrainingScreen
+import com.example.chessmentor.presentation.ui.components.screen.UploadGameScreen
+import com.example.chessmentor.presentation.ui.screen.EngineSettingsScreen
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import kotlinx.coroutines.launch
-import com.example.chessmentor.presentation.ui.screen.*
+
+private const val TAG = "ChessMentorNavigation"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,7 +56,10 @@ fun ChessMentorApp(
 
     // Синхронизация пользователя с ViewModel
     LaunchedEffect(currentUser) {
-        currentUser?.let { gameViewModel.setUser(it) }
+        currentUser?.let {
+            gameViewModel.setUser(it)
+            Log.d(TAG, "User set: ${it.nickname}")
+        }
     }
 
     Scaffold(
@@ -63,6 +76,7 @@ fun ChessMentorApp(
                         }
                         else -> "home"
                     }
+                    Log.d(TAG, "Navigate back to: $currentScreen")
                 }
             )
         },
@@ -70,7 +84,10 @@ fun ChessMentorApp(
             if (currentUser != null && currentScreen != "game_view") {
                 ChessMentorBottomBar(
                     currentScreen = currentScreen,
-                    onNavigate = { currentScreen = it }
+                    onNavigate = {
+                        currentScreen = it
+                        Log.d(TAG, "Navigate to: $it")
+                    }
                 )
             }
         }
@@ -89,7 +106,10 @@ fun ChessMentorApp(
             regRating = regRating,
             loginEmail = loginEmail,
             loginPassword = loginPassword,
-            onScreenChange = { currentScreen = it },
+            onScreenChange = {
+                currentScreen = it
+                Log.d(TAG, "Screen changed to: $it")
+            },
             onUserChange = { currentUser = it },
             onMessageChange = { message = it },
             onMessageDismiss = { message = "" },
@@ -159,6 +179,8 @@ private fun ChessMentorTopBar(
                     "game_view" -> Icons.Default.Search
                     "summary" -> Icons.Default.Insights
                     "training" -> Icons.Default.FitnessCenter
+                    "stats" -> Icons.Default.Analytics
+                    "settings" -> Icons.Default.Settings
                     else -> Icons.Default.SportsEsports
                 }
 
@@ -177,6 +199,8 @@ private fun ChessMentorTopBar(
                         "game_view" -> "Анализ партии"
                         "summary" -> "Сводка анализа"
                         "training" -> "Тренировка"
+                        "stats" -> "Статистика"
+                        "settings" -> "Настройки"
                         else -> "Шахматный Ментор"
                     },
                     fontWeight = FontWeight.Bold
@@ -311,9 +335,79 @@ private fun NavigationHost(
                     gameViewModel = gameViewModel,
                     user = currentUser
                 )
+            } else {
+                // Если игра не выбрана, возвращаемся к списку
+                LaunchedEffect(Unit) {
+                    onScreenChange("games")
+                }
             }
         }
 
+        "summary" -> {
+            val game = gameViewModel.selectedGame.value
+
+            if (game != null) {
+                // ✅ ВАЖНО: Данные берём напрямую из GameViewModel
+                val mistakes = gameViewModel.selectedGameMistakes
+                val analyzedMoves = gameViewModel.selectedGameAnalyzedMoves
+                val evaluations = gameViewModel.selectedGameEvaluations
+
+                Log.d(TAG, "SummaryScreen: game=${game.id}, " +
+                        "analyzedMoves=${analyzedMoves.size}, " +
+                        "evaluations=${evaluations.size}")
+
+                // ✅ ИСПРАВЛЕНО: BoardViewModel создаётся только когда есть данные
+                val boardViewModel = remember(game.id, analyzedMoves.size) {
+                    Log.d(TAG, "Creating BoardViewModel with ${analyzedMoves.size} moves")
+                    BoardViewModel().apply {
+                        loadGame(
+                            game = game,
+                            gameMistakes = mistakes.toList(),
+                            gameAnalyzedMoves = analyzedMoves.toList(),
+                            gameEvaluations = evaluations.toList()
+                        )
+                    }
+                }
+
+                // ✅ ИСПРАВЛЕНО: keyMoments пересчитываются при изменении analyzedMoves
+                val keyMoments = remember(analyzedMoves.size) {
+                    boardViewModel.getKeyMoments().also {
+                        Log.d(TAG, "KeyMoments: ${it.size}")
+                    }
+                }
+
+                SummaryScreen(
+                    paddingValues = paddingValues,
+                    game = game,
+                    keyMoments = keyMoments,
+                    boardViewModel = boardViewModel,
+                    gameViewModel = gameViewModel,
+                    onReviewClick = {
+                        onScreenChange("game_view")
+                    }
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    Log.w(TAG, "SummaryScreen: No game selected")
+                    onScreenChange("games")
+                }
+            }
+        }
+
+        "upload" -> UploadGameScreen(
+            paddingValues = paddingValues,
+            gameViewModel = gameViewModel,
+            engineSettingsRepository = container.engineSettingsRepository,  // ✅ НОВОЕ
+            onGameUploaded = { },
+            onAnalysisComplete = { onScreenChange("summary") },
+            onOpenEngineSettings = { onScreenChange("engine_settings") }  // ✅ НОВОЕ
+        )
+
+        "training" -> TrainingScreen(
+            paddingValues = paddingValues,
+            container = container,
+            userId = currentUser?.id ?: 0L
+        )
 
         "stats" -> {
             currentUser?.let { user ->
@@ -322,45 +416,13 @@ private fun NavigationHost(
                     user = user,
                     container = container
                 )
-            }
-        }
-
-        "training" -> TrainingScreen(
-            paddingValues = paddingValues,
-            container = container,
-            userId = currentUser?.id ?: 0L
-        )
-
-        "summary" -> {
-            val game = gameViewModel.selectedGame.value
-            if (game != null) {
-                val evaluations = gameViewModel.getLatestEvaluations()
-                val boardViewModel = remember(game.id) {
-                    BoardViewModel().apply {
-                        loadGame(
-                            game = game,
-                            gameMistakes = gameViewModel.selectedGameMistakes,
-                            realEvaluations = evaluations
-                        )
-                    }
+            } ?: run {
+                // Если пользователь не авторизован
+                LaunchedEffect(Unit) {
+                    onScreenChange("home")
                 }
-                val keyMoments = boardViewModel.getKeyMoments()
-
-                SummaryScreen(
-                    paddingValues = paddingValues,
-                    game = game,
-                    keyMoments = keyMoments,
-                    boardViewModel = boardViewModel,
-                    onReviewClick = { onScreenChange("game_view") }
-                )
             }
         }
-
-        "upload" -> UploadGameScreen(
-            paddingValues = paddingValues,
-            gameViewModel = gameViewModel,
-            onGameUploaded = { onScreenChange("summary") }
-        )
 
         "settings" -> {
             currentUser?.let { user ->
@@ -373,7 +435,19 @@ private fun NavigationHost(
                         onScreenChange("home")
                     }
                 )
+            } ?: run {
+                LaunchedEffect(Unit) {
+                    onScreenChange("home")
+                }
             }
+        }
+
+        "engine_settings" -> {
+            EngineSettingsScreen(
+                paddingValues = paddingValues,
+                engineSettingsRepository = container.engineSettingsRepository,
+                onBack = { onScreenChange("upload") }
+            )
         }
     }
 }

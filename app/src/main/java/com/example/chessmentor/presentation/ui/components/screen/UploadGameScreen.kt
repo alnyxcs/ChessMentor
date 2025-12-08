@@ -1,5 +1,5 @@
 // presentation/ui/screen/UploadGameScreen.kt
-package com.example.chessmentor.presentation.ui.screen
+package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -8,8 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -17,19 +16,31 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.EngineSettings
+import com.example.chessmentor.domain.repository.EngineSettingsRepository
+import com.example.chessmentor.domain.usecase.AnalyzeGameUseCase
+import com.example.chessmentor.presentation.ui.components.AnalysisProgressDialog
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 
 @Composable
 fun UploadGameScreen(
     paddingValues: PaddingValues,
     gameViewModel: GameViewModel,
-    onGameUploaded: () -> Unit
+    engineSettingsRepository: EngineSettingsRepository,  // ✅ НОВОЕ
+    onGameUploaded: () -> Unit,
+    onAnalysisComplete: () -> Unit,
+    onOpenEngineSettings: () -> Unit  // ✅ НОВОЕ
 ) {
     val pgnInput by gameViewModel.pgnInput
     val selectedColor by gameViewModel.selectedColor
     val timeControl by gameViewModel.timeControl
     val message by gameViewModel.message
     val isLoading by gameViewModel.isLoading
+
+    val analysisProgress by gameViewModel.analysisProgress.collectAsState(initial = null)
+
+    // ✅ НОВОЕ: Получаем текущие настройки движка для отображения
+    val engineSettings = remember { engineSettingsRepository.getSettings() }
 
     LazyColumn(
         modifier = Modifier
@@ -41,6 +52,14 @@ fun UploadGameScreen(
         // Заголовок
         item {
             UploadHeader()
+        }
+
+        // ✅ НОВОЕ: Карточка настроек движка
+        item {
+            EngineSettingsCard(
+                settings = engineSettings,
+                onClick = onOpenEngineSettings
+            )
         }
 
         // Сообщение
@@ -64,7 +83,89 @@ fun UploadGameScreen(
                 onPgnChange = { gameViewModel.pgnInput.value = it },
                 onColorChange = { gameViewModel.selectedColor.value = it },
                 onTimeControlChange = { gameViewModel.timeControl.value = it },
-                onUpload = { gameViewModel.uploadGame() }
+                onUpload = {
+                    gameViewModel.uploadAndAnalyzeGame()
+                }
+            )
+        }
+    }
+
+    // Диалог прогресса анализа
+    AnalysisProgressDialog(
+        progress = analysisProgress,
+        onDismiss = {
+            gameViewModel.clearAnalysisProgress()
+
+            if (analysisProgress is AnalyzeGameUseCase.AnalysisProgress.Completed) {
+                val result = (analysisProgress as AnalyzeGameUseCase.AnalysisProgress.Completed).result
+                if (result is AnalyzeGameUseCase.Result.Success) {
+                    onAnalysisComplete()
+                }
+            }
+        }
+    )
+}
+
+// ✅ НОВОЕ: Карточка с настройками движка
+@Composable
+private fun EngineSettingsCard(
+    settings: EngineSettings,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(24.dp)
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Настройки движка",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Глубина: ${settings.depth} • Потоки: ${settings.threads} • Хеш: ${settings.hashSizeMb}MB",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
+            }
+
+            // Индикатор профиля
+            Surface(
+                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = settings.getProfileName(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Открыть",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f)
             )
         }
     }
@@ -126,19 +227,23 @@ private fun UploadMessage(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = if (isError) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = cleanMessage,
+            Row(
                 modifier = Modifier.weight(1f),
-                color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
-            )
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = if (isError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = cleanMessage,
+                    color = if (isError) MaterialTheme.colorScheme.onErrorContainer
+                    else MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
             if (!isLoading) {
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Закрыть")
@@ -159,9 +264,6 @@ private fun UploadForm(
     onTimeControlChange: (String) -> Unit,
     onUpload: () -> Unit
 ) {
-    // ОТЛАДКА
-    println("UploadForm: selectedColor = $selectedColor")
-
     Card {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -178,58 +280,103 @@ private fun UploadForm(
                     .height(200.dp),
                 maxLines = 10,
                 enabled = !isLoading,
-                leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
+                leadingIcon = {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                }
             )
 
             // Выбор цвета
-            Text("Ваш цвет:", fontWeight = FontWeight.Bold)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                // БЕЛЫЕ
-                FilterChip(
-                    selected = selectedColor == ChessColor.BLACK,
-                    onClick = {
-                        println("WHITE clicked, current: $selectedColor")
-                        onColorChange(ChessColor.WHITE)
-                    },
-                    label = {
-                        Text("Белые ${if (selectedColor == ChessColor.WHITE) "✓" else ""}")
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Circle,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.border(1.dp, Color.Gray, CircleShape)
-                        )
-                    },
-                    enabled = !isLoading
+            Column {
+                Text(
+                    text = "Ваш цвет:",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                Spacer(Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    // БЕЛЫЕ
+                    FilterChip(
+                        selected = selectedColor == ChessColor.WHITE,
+                        onClick = { onColorChange(ChessColor.WHITE) },
+                        label = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("Белые")
+                                if (selectedColor == ChessColor.WHITE) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .border(1.dp, Color.Gray, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .border(
+                                            width = 8.dp,
+                                            color = Color.White,
+                                            shape = CircleShape
+                                        )
+                                )
+                            }
+                        },
+                        enabled = !isLoading
+                    )
 
-                // ЧЁРНЫЕ
-                FilterChip(
-                    selected = selectedColor == ChessColor.WHITE,
-                    onClick = {
-                        println("BLACK clicked, current: $selectedColor")
-                        onColorChange(ChessColor.BLACK)
-                    },
-                    label = {
-                        Text("Чёрные ${if (selectedColor == ChessColor.BLACK) "✓" else ""}")
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Circle,
-                            contentDescription = null,
-                            tint = Color.Black
-                        )
-                    },
-                    enabled = !isLoading
-                )
+                    // ЧЁРНЫЕ
+                    FilterChip(
+                        selected = selectedColor == ChessColor.BLACK,
+                        onClick = { onColorChange(ChessColor.BLACK) },
+                        label = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text("Чёрные")
+                                if (selectedColor == ChessColor.BLACK) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .border(1.dp, Color.Gray, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .border(
+                                            width = 8.dp,
+                                            color = Color.Black,
+                                            shape = CircleShape
+                                        )
+                                )
+                            }
+                        },
+                        enabled = !isLoading
+                    )
+                }
             }
 
             // Контроль времени
@@ -240,7 +387,9 @@ private fun UploadForm(
                 placeholder = { Text("5+3, 10+0, 15+10") },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading,
-                leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) }
+                leadingIcon = {
+                    Icon(Icons.Default.Timer, contentDescription = null)
+                }
             )
 
             // Кнопка загрузки
@@ -254,10 +403,11 @@ private fun UploadForm(
                 if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Анализируем...")
+                    Text("Загружаем...")
                 } else {
                     Icon(Icons.Default.Analytics, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -268,7 +418,10 @@ private fun UploadForm(
             HorizontalDivider()
 
             // Подсказка
-            Row(verticalAlignment = Alignment.Top) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.Lightbulb,
                     contentDescription = null,
@@ -280,12 +433,18 @@ private fun UploadForm(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "Пример PGN:",
+                        text = "Совет:",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
+                        text = "Вы можете скопировать PGN из Chess.com или Lichess",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Пример: 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )

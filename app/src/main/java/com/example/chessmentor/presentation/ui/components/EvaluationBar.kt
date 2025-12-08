@@ -1,5 +1,4 @@
 // presentation/ui/components/EvaluationBar.kt
-
 package com.example.chessmentor.presentation.ui.components
 
 import androidx.compose.animation.core.*
@@ -14,12 +13,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.data.engine.ChessEngine
 import kotlin.math.exp
 
+/**
+ * Горизонтальная шкала оценки позиции (над доской, как в Chess.com Mobile)
+ *
+ * Белые слева, чёрные справа. Оценка отображается на баре и всегда
+ * смещается так, чтобы быть читаемой (не на границе цветов).
+ *
+ * @param evaluation Оценка в сантипешках (с точки зрения белых)
+ * @param modifier Модификатор
+ */
 @Composable
 fun EvaluationBar(
     evaluation: Int,
@@ -34,64 +41,99 @@ fun EvaluationBar(
         label = "advantageAnimation"
     )
 
+    val evalText = ChessEngine.formatEvaluation(evaluation)
+
     val whiteColor = Color.White
     val blackColor = Color(0xFF1A1A1A)
-    val borderColor = Color.Gray
+    val borderColor = Color.Gray.copy(alpha = 0.3f)
+
+    // Определяем где показывать текст и какой цвет использовать
+    val textAlignment = getEvaluationAlignment(animatedAdvantage)
+    val textColor = getEvaluationTextColor(animatedAdvantage)
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+            .fillMaxWidth()
+            .height(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(6.dp))
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Верхняя часть: БЕЛЫЕ
+        // Бар (белая и чёрная части)
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Белая часть (слева)
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxHeight()
                     .weight(animatedAdvantage.coerceAtLeast(0.02f))
-                    .background(whiteColor),
-                contentAlignment = Alignment.Center
-            ) {
-                if (animatedAdvantage > 0.55f) {
-                    Text(
-                        text = ChessEngine.formatEvaluation(evaluation),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            // Нижняя часть: ЧЁРНЫЕ
+                    .background(whiteColor)
+            )
+            // Чёрная часть (справа)
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxHeight()
                     .weight((1f - animatedAdvantage).coerceAtLeast(0.02f))
-                    .background(blackColor),
-                contentAlignment = Alignment.Center
-            ) {
-                if (animatedAdvantage < 0.45f) {
-                    Text(
-                        text = ChessEngine.formatEvaluation(evaluation),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
+                    .background(blackColor)
+            )
+        }
+
+        // Оценка поверх бара
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            contentAlignment = textAlignment
+        ) {
+            Text(
+                text = evalText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
         }
     }
 }
 
+/**
+ * Выравнивание текста оценки
+ *
+ * ПРАВИЛО: текст всегда должен быть ПОЛНОСТЬЮ на одной из частей бара,
+ * никогда не на границе.
+ *
+ * - Если белая часть >= 50% → текст СЛЕВА (на белой части)
+ * - Если чёрная часть > 50% → текст СПРАВА (на чёрной части)
+ */
+private fun getEvaluationAlignment(advantage: Float): Alignment {
+    return if (advantage >= 0.5f) {
+        Alignment.CenterStart  // Текст на белой части (слева)
+    } else {
+        Alignment.CenterEnd    // Текст на чёрной части (справа)
+    }
+}
+
+/**
+ * Цвет текста оценки
+ *
+ * - На белой части → чёрный текст
+ * - На чёрной части → белый текст
+ */
+private fun getEvaluationTextColor(advantage: Float): Color {
+    return if (advantage >= 0.5f) {
+        Color.Black   // На белой части
+    } else {
+        Color.White   // На чёрной части
+    }
+}
+
+/**
+ * Расчёт преимущества белых (0.0 - 1.0)
+ */
 private fun calculateWhiteAdvantage(evaluation: Int, isMate: Boolean): Float {
     if (isMate) {
         return if (evaluation > 0) 0.98f else 0.02f
     }
 
-    val cappedEval = evaluation.coerceIn(-3000, 3000)
-    val normalized = 1.0f / (1.0f + exp(-cappedEval / 400.0f).toFloat())
+    val cappedEval = evaluation.coerceIn(-1000, 1000)
+    val normalized = 1.0f / (1.0f + exp(-cappedEval / 300.0f).toFloat())
 
     return normalized.coerceIn(0.02f, 0.98f)
 }

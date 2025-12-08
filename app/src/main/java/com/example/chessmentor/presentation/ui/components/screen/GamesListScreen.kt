@@ -1,5 +1,5 @@
 // presentation/ui/screen/GamesListScreen.kt
-package com.example.chessmentor.presentation.ui.screen
+package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.domain.entity.*
-import com.example.chessmentor.presentation.ui.components.MiniEvaluationGraph
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import kotlin.collections.get
 
@@ -99,11 +100,15 @@ private fun GamesListHeader(gamesCount: Int) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Мои партии",
+                text = "📋 Мои партии",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text("Всего партий: $gamesCount")
+            Text(
+                text = "Всего партий: $gamesCount",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+            )
         }
     }
 }
@@ -122,9 +127,14 @@ private fun GamesListMessage(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(message, modifier = Modifier.weight(1f))
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
             TextButton(onClick = onDismiss) {
                 Text("✕")
             }
@@ -148,7 +158,12 @@ private fun EmptyGamesPlaceholder() {
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text("Загрузите свою первую партию!")
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Загрузите свою первую партию!",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -160,97 +175,170 @@ fun GameCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 2.dp,
         onClick = onClick
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Заголовок
+            // Заголовок с кнопкой удаления
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Цвет игрока
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
+                            .size(20.dp)
                             .background(
                                 if (game.playerColor == ChessColor.WHITE) Color.White else Color.Black,
-                                MaterialTheme.shapes.extraSmall
+                                MaterialTheme.shapes.small
                             )
-                            .border(1.dp, Color.Gray, MaterialTheme.shapes.extraSmall)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                shape = MaterialTheme.shapes.small
+                            )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Партия #${game.id}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = "Партия #${game.id}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = game.timeControl ?: "Без контроля времени",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-                StatusChip(game.analysisStatus)
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusChip(game.analysisStatus)
+
+                    IconButton(
+                        onClick = { showDeleteDialog = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Удалить",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Метаданные
-            Text(
-                text = "Контроль: ${game.timeControl ?: "N/A"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
 
             // Результаты анализа
             if (game.isAnalyzed()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                Spacer(modifier = Modifier.height(12.dp))
-
-                MiniEvaluationGraph(
-                    game = game,
-                    mistakes = mistakes,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .padding(vertical = 4.dp)
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Точность
                     AccuracyBadge(accuracy = game.accuracy?.toInt() ?: 0)
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MistakeCountSmall(MistakeType.BLUNDER, game.blundersCount)
-                        MistakeCountSmall(MistakeType.MISTAKE, game.mistakesCount)
-                        MistakeCountSmall(MistakeType.INACCURACY, game.inaccuraciesCount)
+                    // Ошибки
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        MistakeCountBadge(
+                            emoji = "❌",
+                            label = "Зевки",
+                            count = game.blundersCount
+                        )
+                        MistakeCountBadge(
+                            emoji = "⚠️",
+                            label = "Ошибки",
+                            count = game.mistakesCount
+                        )
+                        MistakeCountBadge(
+                            emoji = "⚡",
+                            label = "Неточности",
+                            count = game.inaccuraciesCount
+                        )
                     }
                 }
+            } else if (game.analysisStatus == AnalysisStatus.PENDING) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "⏳ Ожидает анализа",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (game.analysisStatus == AnalysisStatus.FAILED) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "❌ Анализ не удался",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
+    }
+
+    // Диалог подтверждения удаления
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Удалить партию?") },
+            text = { Text("Это действие нельзя отменить. Все данные анализа будут потеряны.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
 @Composable
 fun StatusChip(status: AnalysisStatus) {
     val (color, text) = when (status) {
-        AnalysisStatus.COMPLETED -> Color(0xFF81B64C) to "Готово"
-        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "Анализ..."
-        AnalysisStatus.PENDING -> Color.Gray to "Очередь"
-        AnalysisStatus.FAILED -> Color(0xFFFA412D) to "Ошибка"
+        AnalysisStatus.COMPLETED -> Color(0xFF4CAF50) to "✓ Готово"
+        AnalysisStatus.IN_PROGRESS -> Color(0xFFFFA726) to "⏳ Анализ..."
+        AnalysisStatus.PENDING -> Color(0xFF9E9E9E) to "⏸ Очередь"
+        AnalysisStatus.FAILED -> Color(0xFFE53935) to "✗ Ошибка"
     }
 
     Surface(
-        color = color.copy(alpha = 0.1f),
+        color = color.copy(alpha = 0.15f),
         shape = MaterialTheme.shapes.small,
         border = BorderStroke(1.dp, color.copy(alpha = 0.5f))
     ) {
@@ -259,45 +347,60 @@ fun StatusChip(status: AnalysisStatus) {
             color = color,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
 }
 
 @Composable
 fun AccuracyBadge(accuracy: Int) {
-    Column {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = "Точность",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "$accuracy%",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = when {
-                accuracy >= 90 -> Color(0xFF81B64C)
+                accuracy >= 90 -> Color(0xFF4CAF50)
+                accuracy >= 80 -> Color(0xFF8BC34A)
                 accuracy >= 70 -> Color(0xFFFFA726)
-                else -> Color.Gray
+                accuracy >= 60 -> Color(0xFFFF9800)
+                else -> Color(0xFFE53935)
             }
         )
     }
 }
 
-
 @Composable
-fun MistakeCountSmall(type: MistakeType, count: Int) {
-    if (count > 0) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(type.getEmoji(), fontSize = 14.sp)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "$count",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
+fun MistakeCountBadge(
+    emoji: String,
+    label: String,
+    count: Int
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = emoji,
+            fontSize = 16.sp
+        )
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (count > 0) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            }
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

@@ -1,205 +1,291 @@
+// domain/usecase/AnalyzeGameUseCase.kt
 package com.example.chessmentor.domain.usecase
 
 import android.util.Log
 import com.example.chessmentor.data.engine.ChessEngine
 import com.example.chessmentor.domain.entity.*
+import com.example.chessmentor.domain.repository.AnalyzedMoveRepository
+import com.example.chessmentor.domain.repository.EngineSettingsRepository
 import com.example.chessmentor.domain.repository.GameRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.pgn.PgnHolder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.exp
 
 class AnalyzeGameUseCase(
     private val gameRepository: GameRepository,
     private val mistakeRepository: MistakeRepository,
+    private val analyzedMoveRepository: AnalyzedMoveRepository,
     private val userRepository: UserRepository,
-    private val chessEngine: ChessEngine
+    private val chessEngine: ChessEngine,
+    private val engineSettingsRepository: EngineSettingsRepository
 ) {
     companion object {
         private const val TAG = "AnalyzeGameUseCase"
-        private const val ANALYSIS_DEPTH = 15
+
+        // ========== ПОРОГИ ОШИБОК (Chess.com) ==========
+        private const val BLUNDER_THRESHOLD = 300   // 3+ пешки
+        private const val MISTAKE_THRESHOLD = 100   // 1-3 пешки
+        private const val INACCURACY_THRESHOLD = 30 // 0.3-1 пешки
+
+        // ========== ПОРОГИ ХОРОШИХ ХОДОВ ==========
+        private const val BRILLIANT_THRESHOLD = 200    // Улучшение 2+ пешки в плохой позиции
+        private const val GREAT_MOVE_THRESHOLD = 100   // Улучшение 1+ пешка
+        private const val BEST_MOVE_MAX_LOSS = 5       // Потеря до 5cp
+        private const val EXCELLENT_MAX_LOSS = 10      // Потеря до 10cp
+        private const val GOOD_MAX_LOSS = 20           // Потеря до 20cp
+
+        // ========== ПОЗИЦИОННЫЕ ПОРОГИ ==========
+        private const val LOSING_POSITION = -150       // Проигранная позиция
+        private const val BOOK_MOVES_LIMIT = 10        // Первые 10 ходов — дебют
     }
 
     data class Input(val gameId: Long)
 
+    sealed class AnalysisProgress {
+        object Starting : AnalysisProgress()
+        data class InProgress(
+            val currentMove: Int,
+            val totalMoves: Int,
+            val currentMoveNotation: String = ""
+        ) : AnalysisProgress()
+        data class Completed(val result: Result) : AnalysisProgress()
+        data class Failed(val error: String) : AnalysisProgress()
+    }
+
     sealed class Result {
         data class Success(
             val game: Game,
+            val analyzedMoves: List<AnalyzedMove>,
             val mistakes: List<Mistake>,
             val evaluations: List<Int>
         ) : Result()
         data class Error(val message: String) : Result()
     }
 
-    private data class MoveAnalysis(
-        val moveNumber: Int,
-        val color: ChessColor,
-        val userMove: String,
-        val bestMove: String,
-        val evaluationLoss: Int,
-        val evaluationAfter: Int,
-        val fen: String
-    )
+    /**
+     * Основной метод анализа с прогрессом
+     */
+    fun executeWithProgress(input: Input): Flow<AnalysisProgress> = flow {
+        emit(AnalysisProgress.Starting)
+        Log.d(TAG, "Starting analysis flow for game ${input.gameId}")
 
-    suspend fun execute(input: Input): Result = withContext(Dispatchers.Default) {
-        val game = gameRepository.findById(input.gameId)
-            ?: return@withContext Result.Error("Партия не найдена")
-
-        if (game.analysisStatus == AnalysisStatus.COMPLETED) {
-            val savedMistakes = mistakeRepository.findByGameId(game.id!!)
-            return@withContext Result.Success(game, savedMistakes, emptyList())
-        }
-
-        if (game.analysisStatus == AnalysisStatus.IN_PROGRESS) {
-            return@withContext Result.Error("Партия уже анализируется")
-        }
-
-        val user = userRepository.findById(game.userId)
-            ?: return@withContext Result.Error("Пользователь не найден")
-
-        val gameInProgress = game.startAnalysis()
-        gameRepository.update(gameInProgress)
+        // ✅ НОВОЕ: Получаем настройки движка
+        val engineSettings = engineSettingsRepository.getSettings()
+        Log.i(TAG, "Engine settings: depth=${engineSettings.depth}, " +
+                "threads=${engineSettings.threads}, hash=${engineSettings.hashSizeMb}MB")
 
         try {
-            val engineReady = chessEngine.init()
-            if (!engineReady) {
-                return@withContext Result.Error("Не удалось запустить шахматный движок")
+            val game = gameRepository.findById(input.gameId)
+            if (game == null) {
+                emit(AnalysisProgress.Failed("Партия не найдена"))
+                return@flow
             }
 
-            Log.i(TAG, "Engine initialized, starting analysis...")
+            if (game.analysisStatus == AnalysisStatus.COMPLETED) {
+                val savedMoves = analyzedMoveRepository.findByGameId(game.id!!)
+                val savedMistakes = mistakeRepository.findByGameId(game.id)
+                val savedEvaluations = game.getEvaluations()
 
-            val (moveAnalyses, evaluations) = analyzeWithEngine(game.pgnData, game.playerColor)
+                Log.d(TAG, "Game already analyzed. Loaded ${savedMoves.size} moves, " +
+                        "${savedMistakes.size} mistakes, ${savedEvaluations.size} evaluations")
 
-            Log.i(TAG, "Analysis complete: ${moveAnalyses.size} move analyses, ${evaluations.size} evaluations")
+                emit(AnalysisProgress.Completed(
+                    Result.Success(game, savedMoves, savedMistakes, savedEvaluations)
+                ))
+                return@flow
+            }
 
-            val mistakes = mutableListOf<Mistake>()
-            var totalEvaluationLoss = 0
-            var blunders = 0
-            var mistakesCount = 0
-            var inaccuracies = 0
+            if (game.analysisStatus == AnalysisStatus.IN_PROGRESS) {
+                emit(AnalysisProgress.Failed("Партия уже анализируется"))
+                return@flow
+            }
 
-            for (analysis in moveAnalyses) {
-                val mistakeType = MistakeClassifier.classify(analysis.evaluationLoss, user.rating)
-                if (mistakeType != null) {
-                    val theme = detectTheme(analysis)
-                    val mistake = Mistake(
-                        gameId = game.id!!,
-                        themeId = theme.id ?: 1,
-                        moveNumber = analysis.moveNumber,
-                        color = analysis.color,
-                        evaluationLoss = analysis.evaluationLoss,
-                        mistakeType = mistakeType,
-                        bestMove = analysis.bestMove,
-                        userMove = analysis.userMove,
-                        comment = generateComment(mistakeType, theme),
-                        fenBefore = analysis.fen
-                    )
-                    mistakes.add(mistake)
-                    totalEvaluationLoss += analysis.evaluationLoss
+            val user = userRepository.findById(game.userId)
+            if (user == null) {
+                emit(AnalysisProgress.Failed("Пользователь не найден"))
+                return@flow
+            }
 
-                    when (mistakeType) {
-                        MistakeType.BLUNDER -> blunders++
-                        MistakeType.MISTAKE -> mistakesCount++
-                        MistakeType.INACCURACY -> inaccuracies++
+            val gameInProgress = game.startAnalysis()
+            gameRepository.update(gameInProgress)
+
+            Log.d(TAG, "Initializing engine...")
+
+            val engineReady = withContext(Dispatchers.IO) {
+                chessEngine.init()
+            }
+
+            if (!engineReady) {
+                val failedGame = gameInProgress.failAnalysis()
+                gameRepository.update(failedGame)
+                emit(AnalysisProgress.Failed("Не удалось запустить шахматный движок"))
+                return@flow
+            }
+
+            // ✅ НОВОЕ: Применяем настройки движка
+            withContext(Dispatchers.IO) {
+                chessEngine.setOption("Threads", engineSettings.threads.toString())
+                chessEngine.setOption("Hash", engineSettings.hashSizeMb.toString())
+            }
+
+            Log.i(TAG, "Engine initialized with settings, starting analysis...")
+
+            val progressChannel = Channel<AnalysisProgress.InProgress>(Channel.BUFFERED)
+
+            var analysisResult: AnalysisData? = null
+            var analysisError: Exception? = null
+
+            coroutineScope {
+                val analysisJob = launch(Dispatchers.IO) {
+                    try {
+                        analysisResult = analyzeAllMoves(
+                            gameId = game.id!!,
+                            pgn = game.pgnData,
+                            playerColor = game.playerColor,
+                            analysisDepth = engineSettings.depth  // ✅ НОВОЕ: Передаём глубину
+                        ) { current, total, moveNotation ->
+                            progressChannel.trySend(
+                                AnalysisProgress.InProgress(current, total, moveNotation)
+                            )
+                        }
+                    } catch (e: Exception) {
+                        analysisError = e
+                    } finally {
+                        progressChannel.close()
                     }
                 }
+
+                for (progress in progressChannel) {
+                    emit(progress)
+                }
+
+                analysisJob.join()
             }
 
-            val totalHalfMoves = evaluations.size - 1
-            val playerMovesCount = (totalHalfMoves + 1) / 2
+            if (analysisError != null) {
+                throw analysisError!!
+            }
 
-            val accuracy = calculateAccuracy(totalEvaluationLoss, playerMovesCount)
-            val avgLoss = if (playerMovesCount > 0) totalEvaluationLoss / playerMovesCount else 0
+            val data = analysisResult ?: throw Exception("Анализ не вернул результат")
+
+            Log.i(TAG, "Analysis complete: ${data.analyzedMoves.size} moves analyzed, " +
+                    "${data.evaluations.size} evaluations")
+
+            val savedMoves = analyzedMoveRepository.saveAll(data.analyzedMoves)
+
+            val mistakes = data.analyzedMoves
+                .filter { it.isMistake() }
+                .mapNotNull { move ->
+                    move.toMistake(
+                        themeId = detectThemeId(move),
+                        fenBefore = data.fenPositions.getOrElse(move.moveIndex) { "" }
+                    )
+                }
 
             val savedMistakes = mistakeRepository.saveAll(mistakes)
+
+            val blunders = savedMoves.count { it.quality == MoveQuality.BLUNDER }
+            val mistakesCount = savedMoves.count { it.quality == MoveQuality.MISTAKE }
+            val inaccuracies = savedMoves.count { it.quality == MoveQuality.INACCURACY }
+
+            val accuracy = calculateCapsAccuracy(data.evaluations, game.playerColor)
+            val avgLoss = calculateAverageLoss(data.evaluations, game.playerColor)
 
             val analyzedGame = gameInProgress.completeAnalysis(
                 accuracy = accuracy,
                 avgLoss = avgLoss,
                 blunders = blunders,
                 mistakes = mistakesCount,
-                inaccuracies = inaccuracies
+                inaccuracies = inaccuracies,
+                evaluations = data.evaluations
             )
 
             val finalGame = gameRepository.update(analyzedGame)
 
-            Log.i(TAG, "Analysis complete: accuracy=${"%.1f".format(accuracy)}%, " +
-                    "mistakes=${mistakes.size}, playerMoves=$playerMovesCount, totalLoss=$totalEvaluationLoss")
+            withContext(Dispatchers.IO) {
+                try {
+                    chessEngine.destroy()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error cleaning up engine", e)
+                }
+            }
 
-            Result.Success(finalGame, savedMistakes, evaluations)
+            Log.i(TAG, "Final: accuracy=${"%.1f".format(accuracy)}%, " +
+                    "blunders=$blunders, mistakes=$mistakesCount, inaccuracies=$inaccuracies, " +
+                    "brilliant=${savedMoves.count { it.quality == MoveQuality.BRILLIANT }}, " +
+                    "great=${savedMoves.count { it.quality == MoveQuality.GREAT_MOVE }}, " +
+                    "evaluations=${data.evaluations.size}")
+
+            emit(AnalysisProgress.Completed(
+                Result.Success(finalGame, savedMoves, savedMistakes, data.evaluations)
+            ))
 
         } catch (e: Exception) {
             Log.e(TAG, "Analysis failed", e)
-            val failedGame = gameInProgress.failAnalysis()
-            gameRepository.update(failedGame)
-            Result.Error("Ошибка анализа: ${e.message}")
-        } finally {
-            try {
-                chessEngine.destroy()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error cleaning up engine", e)
+
+            withContext(Dispatchers.IO) {
+                try {
+                    chessEngine.destroy()
+                } catch (ex: Exception) {
+                    Log.w(TAG, "Error cleaning up engine", ex)
+                }
             }
+
+            emit(AnalysisProgress.Failed("Ошибка анализа: ${e.message}"))
         }
-    }
-
-    private fun calculateAccuracy(totalLoss: Int, playerMoves: Int): Double {
-        if (playerMoves == 0) return 100.0
-
-        val avgLossPerMove = totalLoss.toDouble() / playerMoves
-
-        val accuracy = when {
-            avgLossPerMove <= 0 -> 100.0
-            avgLossPerMove <= 25 -> 100.0 - avgLossPerMove * 0.6
-            avgLossPerMove <= 50 -> 85.0 - (avgLossPerMove - 25) * 0.6
-            avgLossPerMove <= 100 -> 70.0 - (avgLossPerMove - 50) * 0.4
-            avgLossPerMove <= 200 -> 50.0 - (avgLossPerMove - 100) * 0.25
-            else -> 25.0 - (avgLossPerMove - 200) * 0.1
-        }
-
-        return accuracy.coerceIn(0.0, 100.0)
     }
 
     /**
-     * Анализ партии с ПРАВИЛЬНОЙ нормализацией оценок
-     *
-     * ВАЖНО: Stockfish возвращает оценку с точки зрения СТОРОНЫ, КОТОРАЯ ХОДИТ СЛЕДУЮЩЕЙ!
-     *
-     * После хода белых → оценка с точки зрения чёрных
-     * После хода чёрных → оценка с точки зрения белых
-     *
-     * Нам нужна единая шкала "с точки зрения белых", поэтому:
-     * - После хода белых: инвертируем знак (было для чёрных, делаем для белых)
-     * - После хода чёрных: оставляем как есть (уже для белых)
+     * Синхронный метод анализа (для обратной совместимости)
      */
-    private suspend fun analyzeWithEngine(
-        pgn: String,
-        playerColor: ChessColor
-    ): Pair<List<MoveAnalysis>, List<Int>> = withContext(Dispatchers.IO) {
+    suspend fun execute(input: Input): Result = withContext(Dispatchers.Default) {
+        var lastResult: Result = Result.Error("Анализ не завершён")
 
-        val moveAnalyses = mutableListOf<MoveAnalysis>()
+        executeWithProgress(input).collect { progress ->
+            when (progress) {
+                is AnalysisProgress.Completed -> lastResult = progress.result
+                is AnalysisProgress.Failed -> lastResult = Result.Error(progress.error)
+                else -> { }
+            }
+        }
+
+        lastResult
+    }
+
+    // ==================== ВНУТРЕННИЕ КЛАССЫ ====================
+
+    private data class AnalysisData(
+        val analyzedMoves: List<AnalyzedMove>,
+        val evaluations: List<Int>,
+        val fenPositions: Map<Int, String>
+    )
+
+    // ==================== АНАЛИЗ ВСЕХ ХОДОВ ====================
+
+    private suspend fun analyzeAllMoves(
+        gameId: Long,
+        pgn: String,
+        playerColor: ChessColor,
+        analysisDepth: Int,  // ✅ НОВОЕ: Параметр глубины
+        onProgress: (current: Int, total: Int, moveNotation: String) -> Unit
+    ): AnalysisData {
+        val analyzedMoves = mutableListOf<AnalyzedMove>()
         val evaluations = mutableListOf<Int>()
+        val fenPositions = mutableMapOf<Int, String>()
 
         try {
-            val finalPgn = if (pgn.trim().startsWith("[")) {
-                pgn
-            } else {
-                val moves = pgn.replace(Regex("(1-0|0-1|1/2-1/2)\\s*$"), "").trim()
-                """
-[Event "Imported Game"]
-[Site "ChessMentor"]
-[Date "????.??.??"]
-[Round "?"]
-[White "?"]
-[Black "?"]
-[Result "*"]
-
-$moves
-            """.trimIndent()
-            }
+            val finalPgn = normalizePgn(pgn)
 
             val tempFile = File.createTempFile("analyze", ".pgn")
             tempFile.writeText(finalPgn)
@@ -209,113 +295,88 @@ $moves
             tempFile.delete()
 
             if (pgnHolder.games.isEmpty()) {
-                return@withContext Pair(emptyList(), emptyList())
+                throw IllegalArgumentException("PGN не содержит партий")
             }
 
-            val game = pgnHolder.games[0]
+            val pgnGame = pgnHolder.games[0]
+            val halfMoves = pgnGame.halfMoves
+
+            if (halfMoves.isEmpty()) {
+                throw IllegalArgumentException("В партии нет ходов")
+            }
+
+            Log.i(TAG, "Parsed ${halfMoves.size} half-moves, analyzing with depth=$analysisDepth")
+
             val board = Board()
-            val halfMoves = game.halfMoves
+            val totalMoves = halfMoves.size
 
-            // Стартовая оценка
-            val initialFen = board.fen
-            val initialEvalRaw = chessEngine.evaluate(initialFen, depthLimit = ANALYSIS_DEPTH)
-            evaluations.add(initialEvalRaw)  // Начальная позиция — ход белых, не инвертируем
+            // ✅ ОБНОВЛЕНО: Используем analysisDepth
+            val initialEval = chessEngine.evaluate(board.fen, depthLimit = analysisDepth)
+            evaluations.add(initialEval)
 
-            Log.i(TAG, "=== START ANALYSIS ===")
-            Log.i(TAG, "Player color: $playerColor")
-            Log.i(TAG, "Starting FEN: $initialFen")
-            Log.i(TAG, "Starting eval: $initialEvalRaw (white to move, no inversion)")
+            Log.i(TAG, "Initial evaluation: $initialEval cp")
+            Log.i(TAG, "Analyzing $totalMoves half-moves...")
 
             halfMoves.forEachIndexed { index, move ->
                 val moveNumber = (index / 2) + 1
                 val isWhiteMove = index % 2 == 0
-                val isPlayerMove = (playerColor == ChessColor.WHITE && isWhiteMove) ||
-                        (playerColor == ChessColor.BLACK && !isWhiteMove)
+                val movingColor = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK
+                val isPlayerMove = (playerColor == movingColor)
+
+                onProgress(index + 1, totalMoves, move.san)
 
                 val fenBefore = board.fen
+                fenPositions[index] = fenBefore
 
-                // Чей сейчас ход (до выполнения move)?
-                val sideToMoveBefore = if (fenBefore.contains(" w ")) "WHITE" else "BLACK"
+                var bestMoveUci = ""
+                if (isPlayerMove) {
+                    // ✅ ОБНОВЛЕНО: Используем analysisDepth
+                    bestMoveUci = chessEngine.getBestMove(fenBefore, depthLimit = analysisDepth) ?: ""
+                }
 
-                // Делаем ход
                 board.doMove(move)
                 val fenAfter = board.fen
 
-                // Чей ход после?
-                val sideToMoveAfter = if (fenAfter.contains(" w ")) "WHITE" else "BLACK"
-
                 try {
-                    val evalAfterRaw = chessEngine.evaluate(fenAfter, depthLimit = ANALYSIS_DEPTH)
+                    // ✅ ОБНОВЛЕНО: Используем analysisDepth
+                    val evalAfterRaw = chessEngine.evaluate(fenAfter, depthLimit = analysisDepth)
 
-                    // Stockfish даёт оценку с точки зрения стороны, которая ХОДИТ СЛЕДУЮЩЕЙ
-                    // После хода белых → ходят чёрные → оценка с т.з. чёрных → инвертируем
-                    // После хода чёрных → ходят белые → оценка с т.з. белых → не инвертируем
-                    val needsInversion = sideToMoveAfter == "BLACK"
-                    val evalAfterNormalized = if (needsInversion) -evalAfterRaw else evalAfterRaw
+                    val sideToMoveAfter = if (fenAfter.contains(" w ")) "WHITE" else "BLACK"
+                    val evalAfter = if (sideToMoveAfter == "BLACK") -evalAfterRaw else evalAfterRaw
 
-                    evaluations.add(evalAfterNormalized)
-
-                    // Подробный лог для первых 10 ходов
-                    if (index < 10) {
-                        Log.d(TAG, "--- Move ${index + 1}: ${move.san} ---")
-                        Log.d(TAG, "  Before: $sideToMoveBefore to move")
-                        Log.d(TAG, "  After: $sideToMoveAfter to move")
-                        Log.d(TAG, "  Raw eval: $evalAfterRaw")
-                        Log.d(TAG, "  Needs inversion: $needsInversion")
-                        Log.d(TAG, "  Normalized: $evalAfterNormalized")
-                    }
+                    evaluations.add(evalAfter)
 
                     if (isPlayerMove) {
                         val evalBefore = evaluations[evaluations.size - 2]
-                        val evalAfter = evalAfterNormalized
 
-                        val loss = calculateEvaluationLoss(evalBefore, evalAfter, playerColor)
+                        val quality = classifyMove(
+                            evalBefore = evalBefore,
+                            evalAfter = evalAfter,
+                            playerColor = playerColor,
+                            moveNumber = moveNumber
+                        )
 
-                        val bestMoveUci = chessEngine.getBestMove(fenBefore, depthLimit = ANALYSIS_DEPTH) ?: ""
+                        if (quality != null) {
+                            val cpLoss = calculateLoss(evalBefore, evalAfter, playerColor)
+                            val bestMoveSan = if (bestMoveUci.isNotEmpty()) {
+                                convertUciToSan(bestMoveUci, fenBefore)
+                            } else null
 
-                        Log.v(TAG, "Move #$moveNumber (${if (isWhiteMove) "White" else "Black"}): " +
-                                "eval $evalBefore → $evalAfter, loss=$loss")
-
-                        val isMateBefore = ChessEngine.isMateScore(evalBefore)
-                        val isMateAfter = ChessEngine.isMateScore(evalAfter)
-
-                        var finalLoss = loss
-
-                        if ((isMateBefore || isMateAfter) && finalLoss < 3000) {
-                            val wasWinning = (playerColor == ChessColor.WHITE && evalBefore > 0) ||
-                                    (playerColor == ChessColor.BLACK && evalBefore < 0)
-
-                            if (isMateBefore && wasWinning && !isMateAfter) {
-                                finalLoss = 3000
-                            }
-                        }
-
-                        val hasDifferentBestMove = bestMoveUci.isNotEmpty() && bestMoveUci != move.toString()
-                        val isSignificantLoss = finalLoss > 50
-                        val isLargeLoss = finalLoss > 80
-                        val isHugeLoss = finalLoss > 150
-                        val isNotOpening = moveNumber > 5
-
-                        val shouldDetectMistake = when {
-                            isHugeLoss -> true
-                            isLargeLoss && isNotOpening -> true
-                            isSignificantLoss && hasDifferentBestMove && isNotOpening -> true
-                            else -> false
-                        }
-
-                        if (shouldDetectMistake) {
-                            moveAnalyses.add(
-                                MoveAnalysis(
+                            analyzedMoves.add(
+                                AnalyzedMove(
+                                    gameId = gameId,
+                                    moveIndex = index,
                                     moveNumber = moveNumber,
-                                    color = if (isWhiteMove) ChessColor.WHITE else ChessColor.BLACK,
-                                    userMove = move.toString(),
-                                    bestMove = bestMoveUci,
-                                    evaluationLoss = finalLoss,
-                                    evaluationAfter = evalAfter,
-                                    fen = fenBefore
+                                    color = movingColor,
+                                    quality = quality,
+                                    san = move.san,
+                                    bestMove = if (quality.isBad() && bestMoveSan != move.san) bestMoveSan else null,
+                                    evalBefore = evalBefore,
+                                    evalAfter = evalAfter,
+                                    evalLoss = cpLoss,
+                                    comment = generateComment(quality, cpLoss)
                                 )
                             )
-                            Log.d(TAG, "⚠️ Mistake: move #$moveNumber ${move.san}, loss=$finalLoss")
                         }
                     }
 
@@ -327,77 +388,218 @@ $moves
 
         } catch (e: Exception) {
             Log.e(TAG, "Critical error: ${e.message}", e)
+            throw e
         }
 
-        // Итоговая линия
-        Log.i(TAG, "=== FINAL EVALUATION LINE ===")
-        evaluations.forEachIndexed { idx, eval ->
-            if (idx <= 10 || idx == evaluations.size - 1) {
-                Log.d(TAG, "[$idx]: $eval cp (${ChessEngine.formatEvaluation(eval)})")
-            }
-        }
+        Log.i(TAG, "Analysis finished: ${analyzedMoves.size} classified moves, ${evaluations.size} evaluations")
 
-        Log.i(TAG, "Analysis finished: ${moveAnalyses.size} mistakes, ${evaluations.size} evaluations")
-
-        Pair(moveAnalyses, evaluations)
+        return AnalysisData(analyzedMoves, evaluations, fenPositions)
     }
 
-    /**
-     * Потеря оценки для игрока (используем уже нормализованные оценки)
-     *
-     * Все оценки уже с точки зрения БЕЛЫХ:
-     * + = хорошо белым, - = хорошо чёрным
-     */
-    private fun calculateEvaluationLoss(
+    // ==================== КЛАССИФИКАЦИЯ ХОДА ====================
+
+    private fun classifyMove(
         evalBefore: Int,
         evalAfter: Int,
-        playerColor: ChessColor
-    ): Int {
-        val loss = when (playerColor) {
-            ChessColor.WHITE -> {
-                // Для белых: потеря = насколько уменьшилась оценка
-                evalBefore - evalAfter
+        playerColor: ChessColor,
+        moveNumber: Int
+    ): MoveQuality? {
+        val cpLoss = calculateLoss(evalBefore, evalAfter, playerColor)
+        val cpGain = calculateGain(evalBefore, evalAfter, playerColor)
+        val playerEvalBefore = if (playerColor == ChessColor.WHITE) evalBefore else -evalBefore
+        val wasLosing = playerEvalBefore < LOSING_POSITION
+
+        return when {
+            cpLoss >= BLUNDER_THRESHOLD -> MoveQuality.BLUNDER
+            cpLoss >= MISTAKE_THRESHOLD -> MoveQuality.MISTAKE
+            cpLoss >= INACCURACY_THRESHOLD -> MoveQuality.INACCURACY
+
+            moveNumber <= BOOK_MOVES_LIMIT -> {
+                when {
+                    cpLoss <= EXCELLENT_MAX_LOSS -> MoveQuality.BOOK
+                    else -> null
+                }
             }
-            ChessColor.BLACK -> {
-                // Для чёрных: потеря = насколько увеличилась оценка (стало лучше белым)
-                evalAfter - evalBefore
-            }
+
+            cpGain >= BRILLIANT_THRESHOLD && wasLosing -> MoveQuality.BRILLIANT
+            cpGain >= GREAT_MOVE_THRESHOLD -> MoveQuality.GREAT_MOVE
+            cpLoss <= BEST_MOVE_MAX_LOSS -> MoveQuality.BEST_MOVE
+            cpLoss <= EXCELLENT_MAX_LOSS -> MoveQuality.EXCELLENT
+            cpLoss <= GOOD_MAX_LOSS -> MoveQuality.GOOD
+
+            else -> null
+        }
+    }
+
+    private fun calculateLoss(evalBefore: Int, evalAfter: Int, playerColor: ChessColor): Int {
+        val loss = if (playerColor == ChessColor.WHITE) {
+            evalBefore - evalAfter
+        } else {
+            evalAfter - evalBefore
         }
         return loss.coerceAtLeast(0)
     }
 
-    private fun detectTheme(analysis: MoveAnalysis): Theme {
-        return when {
-            analysis.userMove.contains("x") -> PredefinedThemes.SACRIFICE
-            analysis.moveNumber < 10 -> PredefinedThemes.OPENING_PRINCIPLES
-            analysis.moveNumber > 40 -> PredefinedThemes.PAWN_ENDGAME
-            else -> PredefinedThemes.PIECE_ACTIVITY
+    private fun calculateGain(evalBefore: Int, evalAfter: Int, playerColor: ChessColor): Int {
+        val gain = if (playerColor == ChessColor.WHITE) {
+            evalAfter - evalBefore
+        } else {
+            evalBefore - evalAfter
+        }
+        return gain.coerceAtLeast(0)
+    }
+
+    // ==================== CAPS ACCURACY ====================
+
+    private fun centipawnsToWinProbability(cp: Int): Double {
+        val cappedCp = cp.coerceIn(-1000, 1000)
+        return 50.0 + 50.0 * (2.0 / (1.0 + exp(-0.00368208 * cappedCp)) - 1.0)
+    }
+
+    private fun calculateMoveAccuracy(cpBefore: Int, cpAfter: Int, playerColor: ChessColor): Double {
+        val winBefore = if (playerColor == ChessColor.WHITE) {
+            centipawnsToWinProbability(cpBefore)
+        } else {
+            centipawnsToWinProbability(-cpBefore)
+        }
+
+        val winAfter = if (playerColor == ChessColor.WHITE) {
+            centipawnsToWinProbability(cpAfter)
+        } else {
+            centipawnsToWinProbability(-cpAfter)
+        }
+
+        if (winAfter >= winBefore) return 100.0
+
+        val winDrop = winBefore - winAfter
+        val accuracy = 103.1668 * exp(-0.04354 * winDrop) - 3.1669
+
+        return accuracy.coerceIn(0.0, 100.0)
+    }
+
+    private fun calculateCapsAccuracy(evaluations: List<Int>, playerColor: ChessColor): Double {
+        if (evaluations.size < 2) return 100.0
+
+        var totalAccuracy = 0.0
+        var playerMoveCount = 0
+
+        for (i in 1 until evaluations.size) {
+            val moveIndex = i - 1
+            val isWhiteMove = moveIndex % 2 == 0
+            val isPlayerMove = (playerColor == ChessColor.WHITE && isWhiteMove) ||
+                    (playerColor == ChessColor.BLACK && !isWhiteMove)
+
+            if (isPlayerMove) {
+                val cpBefore = evaluations[i - 1]
+                val cpAfter = evaluations[i]
+                totalAccuracy += calculateMoveAccuracy(cpBefore, cpAfter, playerColor)
+                playerMoveCount++
+            }
+        }
+
+        return if (playerMoveCount > 0) totalAccuracy / playerMoveCount else 100.0
+    }
+
+    private fun calculateAverageLoss(evaluations: List<Int>, playerColor: ChessColor): Int {
+        if (evaluations.size < 2) return 0
+
+        var totalLoss = 0
+        var count = 0
+
+        for (i in 1 until evaluations.size) {
+            val moveIndex = i - 1
+            val isWhiteMove = moveIndex % 2 == 0
+            val isPlayerMove = (playerColor == ChessColor.WHITE && isWhiteMove) ||
+                    (playerColor == ChessColor.BLACK && !isWhiteMove)
+
+            if (isPlayerMove) {
+                totalLoss += calculateLoss(evaluations[i - 1], evaluations[i], playerColor)
+                count++
+            }
+        }
+
+        return if (count > 0) totalLoss / count else 0
+    }
+
+    // ==================== УТИЛИТЫ ====================
+
+    private fun normalizePgn(pgn: String): String {
+        val trimmed = pgn.trim()
+
+        Log.d(TAG, "Original PGN (first 200 chars): ${trimmed.take(200)}")
+
+        if (trimmed.isEmpty()) {
+            throw IllegalArgumentException("PGN пустой")
+        }
+
+        val movesOnly = trimmed
+            .replace(Regex("""\[[^\]]*\]"""), " ")
+            .replace(Regex("""\{[^}]*\}"""), " ")
+            .replace(Regex("""\([^)]*\)"""), " ")
+            .replace(Regex("""\$\d+"""), " ")
+            .replace(Regex("""(1-0|0-1|1/2-1/2|\*)\s*$"""), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+        Log.d(TAG, "Moves only: $movesOnly")
+
+        if (movesOnly.isEmpty()) {
+            throw IllegalArgumentException("В PGN нет ходов")
+        }
+
+        val result = buildString {
+            appendLine("""[Event "Imported Game"]""")
+            appendLine("""[Site "ChessMentor"]""")
+            appendLine("""[Date "????.??.??"]""")
+            appendLine("""[Round "1"]""")
+            appendLine("""[White "Player"]""")
+            appendLine("""[Black "Opponent"]""")
+            appendLine("""[Result "*"]""")
+            appendLine()
+            append(movesOnly)
+            append(" *")
+            appendLine()
+        }
+
+        Log.d(TAG, "Normalized PGN (first 300 chars): ${result.take(300)}")
+
+        return result
+    }
+
+    private fun convertUciToSan(uciMove: String, fen: String): String {
+        return try {
+            val tempBoard = Board()
+            tempBoard.loadFromFen(fen)
+            val move = com.github.bhlangonijr.chesslib.move.Move(uciMove, tempBoard.sideToMove)
+            tempBoard.doMove(move)
+            move.san ?: uciMove
+        } catch (e: Exception) {
+            uciMove
         }
     }
 
-    private fun generateComment(mistakeType: MistakeType, theme: Theme): String {
-        val typeComment = when (mistakeType) {
-            MistakeType.BLUNDER -> "Грубая ошибка!"
-            MistakeType.MISTAKE -> "Ошибка."
-            MistakeType.INACCURACY -> "Неточность."
-        }
-        return "$typeComment ${theme.description}"
-    }
-}
-
-object MistakeClassifier {
-    fun classify(evaluationLoss: Int, userRating: Int): MistakeType? {
-        val factor = when {
-            userRating < 1200 -> 1.5
-            userRating < 1800 -> 1.0
-            else -> 0.7
-        }
-
+    private fun detectThemeId(move: AnalyzedMove): Long {
         return when {
-            evaluationLoss >= (250 * factor).toInt() -> MistakeType.BLUNDER
-            evaluationLoss >= (100 * factor).toInt() -> MistakeType.MISTAKE
-            evaluationLoss >= (50 * factor).toInt() -> MistakeType.INACCURACY
-            else -> null
+            move.san.contains("x") -> 2L
+            move.moveNumber < 10 -> 1L
+            move.moveNumber > 40 -> 4L
+            else -> 3L
+        }
+    }
+
+    private fun generateComment(quality: MoveQuality, cpLoss: Int): String {
+        val pawns = abs(cpLoss) / 100.0
+        return when (quality) {
+            MoveQuality.BRILLIANT -> "Блестящий ход! Отличная находка."
+            MoveQuality.GREAT_MOVE -> "Отличный ход!"
+            MoveQuality.BEST_MOVE -> "Лучший ход."
+            MoveQuality.EXCELLENT -> "Превосходно."
+            MoveQuality.GOOD -> "Хороший ход."
+            MoveQuality.BOOK -> "Теоретический ход."
+            MoveQuality.INACCURACY -> "Неточность (−%.1f).".format(pawns)
+            MoveQuality.MISTAKE -> "Ошибка (−%.1f).".format(pawns)
+            MoveQuality.BLUNDER -> "Грубый зевок! (−%.1f)".format(pawns)
+            MoveQuality.MISSED_WIN -> "Упущена победа!"
         }
     }
 }

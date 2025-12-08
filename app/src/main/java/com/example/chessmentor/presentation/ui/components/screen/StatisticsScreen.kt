@@ -1,5 +1,5 @@
 // presentation/ui/screen/StatisticsScreen.kt
-package com.example.chessmentor.presentation.ui.screen
+package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn

@@ -1,5 +1,5 @@
 // presentation/ui/screen/SummaryScreen.kt
-package com.example.chessmentor.presentation.ui.screen
+package com.example.chessmentor.presentation.ui.components.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,17 +25,36 @@ import com.example.chessmentor.domain.entity.KeyMoment
 import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.presentation.ui.components.EvaluationGraph
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
-import kotlin.math.abs
+import com.example.chessmentor.presentation.viewmodel.GameViewModel
 
+/**
+ * Экран сводки анализа партии
+ * ✅ ОБНОВЛЕНО: Использует evaluations из GameViewModel (сохранённые в БД)
+ */
 @Composable
 fun SummaryScreen(
     paddingValues: PaddingValues,
     game: Game,
     keyMoments: List<KeyMoment>,
     boardViewModel: BoardViewModel,
+    gameViewModel: GameViewModel,  // ✅ ДОБАВЛЕНО
     onReviewClick: () -> Unit
 ) {
     val currentMoveIndex by boardViewModel.currentMoveIndex
+
+    // ✅ ОБНОВЛЕНО: Получаем evaluations из правильного источника
+    val evaluations = remember(game.id) {
+        // Приоритет: BoardViewModel (если загружена игра) → GameViewModel → пустой список
+        when {
+            boardViewModel.evaluations.isNotEmpty() -> boardViewModel.evaluations.toList()
+            gameViewModel.selectedGameEvaluations.isNotEmpty() -> gameViewModel.selectedGameEvaluations.toList()
+            game.hasEvaluations() -> game.getEvaluations()
+            else -> emptyList()
+        }
+    }
+
+    // ✅ НОВОЕ: Проверяем наличие реальных данных
+    val hasRealEvaluations = evaluations.isNotEmpty() && game.hasEvaluations()
 
     LazyColumn(
         modifier = Modifier
@@ -55,20 +75,17 @@ fun SummaryScreen(
             }
         }
 
-        // График оценки
+        // ✅ ОБНОВЛЕНО: График оценки с проверкой данных
         item {
-            val evaluations = boardViewModel.evaluations.toList()
-            EvaluationGraph(
+            EvaluationGraphCard(
                 evaluations = evaluations,
                 keyMoments = keyMoments,
                 currentMoveIndex = currentMoveIndex,
                 playerColor = game.playerColor,
+                hasRealData = hasRealEvaluations,
                 onMoveClick = { index ->
                     boardViewModel.goToMove(index)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                showMoveNumbers = true,
-                animateChanges = true
+                }
             )
         }
 
@@ -101,8 +118,214 @@ fun SummaryScreen(
                 Text("Перейти к разбору партии", fontSize = 16.sp)
             }
         }
+
+        // ✅ НОВОЕ: Информация о данных (для отладки, можно убрать в продакшене)
+        item {
+            if (!hasRealEvaluations && game.isAnalyzed()) {
+                ReanalyzeHint(onReanalyze = {
+                    // TODO: Добавить переанализ
+                })
+            }
+        }
     }
 }
+
+/**
+ * ✅ НОВОЕ: Карточка с графиком оценки
+ */
+@Composable
+private fun EvaluationGraphCard(
+    evaluations: List<Int>,
+    keyMoments: List<KeyMoment>,
+    currentMoveIndex: Int,
+    playerColor: ChessColor,
+    hasRealData: Boolean,
+    onMoveClick: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "📈 График оценки",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // ✅ НОВОЕ: Индикатор источника данных
+                if (hasRealData) {
+                    Surface(
+                        color = Color(0xFF4CAF50).copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "Stockfish",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF4CAF50),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (evaluations.isNotEmpty()) {
+                EvaluationGraph(
+                    evaluations = evaluations,
+                    keyMoments = keyMoments,
+                    currentMoveIndex = currentMoveIndex,
+                    playerColor = playerColor,
+                    onMoveClick = onMoveClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    showMoveNumbers = true,
+                    animateChanges = true
+                )
+
+                // ✅ НОВОЕ: Легенда
+                Spacer(modifier = Modifier.height(8.dp))
+                EvaluationGraphLegend()
+
+            } else {
+                // Нет данных
+                NoEvaluationsPlaceholder()
+            }
+        }
+    }
+}
+
+/**
+ * ✅ НОВОЕ: Легенда графика
+ */
+@Composable
+private fun EvaluationGraphLegend() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LegendItem(color = Color.White, label = "Белые")
+        Spacer(modifier = Modifier.width(16.dp))
+        LegendItem(color = Color.Black, label = "Чёрные")
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = "• Клик = переход к ходу",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun LegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .background(color, RoundedCornerShape(2.dp))
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * ✅ НОВОЕ: Заглушка когда нет данных
+ */
+@Composable
+private fun NoEvaluationsPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(100.dp)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(8.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Timeline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "График недоступен",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+            Text(
+                text = "Переанализируйте партию",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
+
+/**
+ * ✅ НОВОЕ: Подсказка о переанализе
+ */
+@Composable
+private fun ReanalyzeHint(onReanalyze: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Данные графика отсутствуют",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Партия была проанализирована в старой версии",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
+            }
+            // TODO: Раскомментировать когда будет готов переанализ
+            // TextButton(onClick = onReanalyze) {
+            //     Text("Обновить")
+            // }
+        }
+    }
+}
+
+// ==================== СУЩЕСТВУЮЩИЕ КОМПОНЕНТЫ (без изменений) ====================
 
 @Composable
 private fun SummaryHeader(game: Game) {
@@ -132,7 +355,6 @@ private fun SummaryHeader(game: Game) {
                 )
             }
 
-            // Индикатор цвета игрока
             Box(
                 modifier = Modifier
                     .size(32.dp)
@@ -147,6 +369,8 @@ private fun SummaryHeader(game: Game) {
 
 @Composable
 private fun GameMetricsCard(game: Game) {
+    val accuracy = game.accuracy ?: 0.0
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -161,17 +385,15 @@ private fun GameMetricsCard(game: Game) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Точность — большой индикатор
+            AccuracyIndicator(accuracy = accuracy)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Точность
-                MetricItem(
-                    label = "Точность",
-                    value = "${game.accuracy?.toInt() ?: 0}%",
-                    color = getAccuracyColor(game.accuracy ?: 0.0)
-                )
-
                 // Средняя потеря
                 MetricItem(
                     label = "Ср. потеря",
@@ -202,7 +424,7 @@ private fun GameMetricsCard(game: Game) {
             ) {
                 ErrorTypeItem(
                     emoji = "??",
-                    label = "Грубые",
+                    label = "Зевки",
                     count = game.blundersCount,
                     color = Color(0xFFD32F2F)
                 )
@@ -220,6 +442,68 @@ private fun GameMetricsCard(game: Game) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AccuracyIndicator(accuracy: Double) {
+    val color = getAccuracyColor(accuracy)
+    val rating = getAccuracyRating(accuracy)
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        // Круговой индикатор
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(100.dp)
+        ) {
+            CircularProgressIndicator(
+                progress = { (accuracy / 100f).toFloat() },
+                modifier = Modifier.fillMaxSize(),
+                color = color,
+                strokeWidth = 8.dp,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${accuracy.toInt()}%",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = color
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(24.dp))
+
+        Column {
+            Text(
+                text = "Точность",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = rating,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+    }
+}
+
+private fun getAccuracyRating(accuracy: Double): String {
+    return when {
+        accuracy >= 95 -> "Превосходно!"
+        accuracy >= 90 -> "Отлично"
+        accuracy >= 80 -> "Хорошо"
+        accuracy >= 70 -> "Неплохо"
+        accuracy >= 60 -> "Средне"
+        accuracy >= 50 -> "Слабо"
+        else -> "Плохо"
     }
 }
 
@@ -273,7 +557,9 @@ private fun ErrorTypeItem(
 private fun getAccuracyColor(accuracy: Double): Color {
     return when {
         accuracy >= 90 -> Color(0xFF4CAF50)
-        accuracy >= 70 -> Color(0xFF8BC34A)
+        accuracy >= 80 -> Color(0xFF8BC34A)
+        accuracy >= 70 -> Color(0xFFCDDC39)
+        accuracy >= 60 -> Color(0xFFFFEB3B)
         accuracy >= 50 -> Color(0xFFFF9800)
         else -> Color(0xFFE53935)
     }
@@ -284,6 +570,16 @@ fun KeyMomentsCard(
     keyMoments: List<KeyMoment>,
     onMomentClick: (KeyMoment) -> Unit
 ) {
+    // Считаем статистику из keyMoments
+    val brilliantCount = keyMoments.count { it.quality == MoveQuality.BRILLIANT }
+    val greatCount = keyMoments.count { it.quality == MoveQuality.GREAT_MOVE }
+    val bestCount = keyMoments.count { it.quality == MoveQuality.BEST_MOVE }
+    val excellentCount = keyMoments.count { it.quality == MoveQuality.EXCELLENT }
+    val goodCount = keyMoments.count { it.quality == MoveQuality.GOOD }
+    val inaccuracyCount = keyMoments.count { it.quality == MoveQuality.INACCURACY }
+    val mistakeCount = keyMoments.count { it.quality == MoveQuality.MISTAKE }
+    val blunderCount = keyMoments.count { it.quality == MoveQuality.BLUNDER }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -292,7 +588,7 @@ fun KeyMomentsCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "⭐ Ключевые моменты",
+                text = "⭐ Качество ходов",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -304,17 +600,21 @@ fun KeyMomentsCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.BRILLIANT,
-                    count = keyMoments.count { it.quality == MoveQuality.BRILLIANT }
+                    count = brilliantCount
                 )
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.GREAT_MOVE,
-                    count = keyMoments.count { it.quality == MoveQuality.GREAT_MOVE }
+                    count = greatCount
                 )
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.BEST_MOVE,
-                    count = keyMoments.count { it.quality == MoveQuality.BEST_MOVE }
+                    count = bestCount
+                )
+                KeyMomentItemCompact(
+                    quality = MoveQuality.GOOD,
+                    count = goodCount + excellentCount
                 )
             }
 
@@ -327,34 +627,43 @@ fun KeyMomentsCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.INACCURACY,
-                    count = keyMoments.count { it.quality == MoveQuality.INACCURACY }
+                    count = inaccuracyCount
                 )
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.MISTAKE,
-                    count = keyMoments.count { it.quality == MoveQuality.MISTAKE }
+                    count = mistakeCount
                 )
-                KeyMomentItemLarge(
+                KeyMomentItemCompact(
                     quality = MoveQuality.BLUNDER,
-                    count = keyMoments.count { it.quality == MoveQuality.BLUNDER }
+                    count = blunderCount
                 )
             }
 
-            // Список моментов
-            if (keyMoments.isNotEmpty()) {
+            // Список ключевых моментов
+            val significantMoments = keyMoments.filter {
+                it.quality in listOf(
+                    MoveQuality.BRILLIANT,
+                    MoveQuality.GREAT_MOVE,
+                    MoveQuality.BLUNDER,
+                    MoveQuality.MISTAKE,
+                    MoveQuality.INACCURACY
+                )
+            }
+
+            if (significantMoments.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    text = "Быстрый обзор:",
+                    text = "Ключевые моменты:",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(Modifier.height(8.dp))
 
-                keyMoments
-                    .sortedByDescending { abs(it.evaluationChange) }
+                significantMoments
                     .take(5)
                     .forEach { moment ->
                         KeyMomentRow(moment = moment, onClick = onMomentClick)
@@ -365,29 +674,48 @@ fun KeyMomentsCard(
 }
 
 @Composable
-fun KeyMomentItemLarge(
+fun KeyMomentItemCompact(
     quality: MoveQuality,
     count: Int
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(70.dp)
+    ) {
         Text(
             text = quality.getEmoji(),
-            fontSize = 28.sp,
-            modifier = Modifier.padding(bottom = 4.dp)
+            fontSize = 24.sp,
+            modifier = Modifier.padding(bottom = 2.dp)
         )
 
         Text(
             text = "$count",
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = if (count > 0) quality.getColor() else Color.Gray.copy(alpha = 0.5f)
         )
 
         Text(
-            text = quality.getDisplayName(),
+            text = getShortName(quality),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
+    }
+}
+
+private fun getShortName(quality: MoveQuality): String {
+    return when (quality) {
+        MoveQuality.BRILLIANT -> "Блест."
+        MoveQuality.GREAT_MOVE -> "Отлич."
+        MoveQuality.BEST_MOVE -> "Лучший"
+        MoveQuality.EXCELLENT -> "Превос."
+        MoveQuality.GOOD -> "Хорош."
+        MoveQuality.BOOK -> "Теория"
+        MoveQuality.INACCURACY -> "Неточ."
+        MoveQuality.MISTAKE -> "Ошибка"
+        MoveQuality.BLUNDER -> "Зевок"
+        MoveQuality.MISSED_WIN -> "Упущ."
     }
 }
 
@@ -412,7 +740,6 @@ fun KeyMomentRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Эмодзи качества
             Text(
                 text = moment.quality.getEmoji(),
                 fontSize = 24.sp
@@ -420,7 +747,6 @@ fun KeyMomentRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Информация о ходе
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Ход ${moment.moveIndex / 2 + 1}",
@@ -434,7 +760,6 @@ fun KeyMomentRow(
                 )
             }
 
-            // Изменение оценки
             Text(
                 text = formatEvaluationChange(moment.evaluationChange),
                 style = MaterialTheme.typography.bodyLarge,
@@ -453,9 +778,6 @@ fun KeyMomentRow(
     }
 }
 
-/**
- * Форматирование изменения оценки
- */
 private fun formatEvaluationChange(change: Int): String {
     val pawns = change / 100.0
     return when {

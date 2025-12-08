@@ -1,4 +1,4 @@
-// app/src/main/java/com/example/chessmentor/data/engine/StockfishEngine.kt
+// data/engine/StockfishEngine.kt
 package com.example.chessmentor.data.engine
 
 import android.content.Context
@@ -159,6 +159,30 @@ class StockfishEngine(context: Context) : ChessEngine {
         Log.d(TAG, "Engine destroyed")
     }
 
+    // ✅ НОВОЕ: Реализация метода setOption из интерфейса
+    override suspend fun setOption(name: String, value: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            when (name.lowercase()) {
+                "threads" -> {
+                    threads = value.toIntOrNull()?.coerceIn(1, 8) ?: threads
+                    Log.d(TAG, "Setting Threads = $threads")
+                }
+                "hash" -> {
+                    hashSizeMB = value.toIntOrNull()?.coerceIn(1, 1024) ?: hashSizeMB
+                    Log.d(TAG, "Setting Hash = $hashSizeMB MB")
+                }
+            }
+
+            if (isInitialized && process.isRunning()) {
+                process.sendCommand("setoption name $name value $value")
+                // Ждём подтверждения
+                process.sendCommand("isready")
+                process.waitForResponse("readyok", 2000)
+                Log.d(TAG, "Option $name set to $value")
+            }
+        }
+    }
+
     private suspend fun ensureReady(): Boolean {
         if (!isInitialized || !process.isRunning()) {
             Log.d(TAG, "Engine not ready, initializing...")
@@ -219,17 +243,6 @@ class StockfishEngine(context: Context) : ChessEngine {
         return AnalysisResult(bestMove, score, mate)
     }
 
-    /**
-     * Парсинг строки info от Stockfish
-     *
-     * Формат матовых оценок:
-     * - "score mate 3" = мат в 3 хода за сторону которая ходит
-     * - "score mate -3" = мат в 3 хода против стороны которая ходит
-     *
-     * Преобразование в score:
-     * - mate 3 → +99700 (MATE_SCORE - 3*100)
-     * - mate -3 → -99700 (-MATE_SCORE + 3*100)
-     */
     private fun parseInfoLine(line: String): InfoLine? {
         try {
             val depth = Regex("""depth (\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
@@ -240,17 +253,12 @@ class StockfishEngine(context: Context) : ChessEngine {
 
             when {
                 line.contains("score mate") -> {
-                    // Парсим мат
                     mate = Regex("""score mate (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
 
                     if (mate != null) {
-                        // Преобразуем мат в числовую оценку
-                        // Чем меньше ходов до мата, тем ближе к MATE_SCORE
                         score = if (mate > 0) {
-                            // Мат за нас: +99700, +99800, +99900...
                             MATE_SCORE - abs(mate) * 100
                         } else {
-                            // Мат против нас: -99700, -99800, -99900...
                             -MATE_SCORE + abs(mate) * 100
                         }
 
@@ -259,7 +267,6 @@ class StockfishEngine(context: Context) : ChessEngine {
                 }
 
                 line.contains("score cp") -> {
-                    // Обычная оценка в сантипешках
                     score = Regex("""score cp (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                 }
             }

@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import com.example.chessmentor.domain.entity.AnalysisStatus
 import com.example.chessmentor.domain.entity.ChessColor
 import com.example.chessmentor.domain.entity.MistakeType
+import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.SkillLevel
 
 class TypeConverters {
@@ -36,4 +37,10 @@ class TypeConverters {
     fun fromMistakeType(value: MistakeType?): String? = value?.name
     @TypeConverter
     fun toMistakeType(value: String?): MistakeType? = value?.let { MistakeType.valueOf(it) }
+
+    @TypeConverter
+    fun fromMoveQuality(quality: MoveQuality): String = quality.name
+
+    @TypeConverter
+    fun toMoveQuality(value: String): MoveQuality = MoveQuality.valueOf(value)
 }

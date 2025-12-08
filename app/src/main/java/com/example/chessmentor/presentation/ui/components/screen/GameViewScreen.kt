@@ -1,10 +1,11 @@
 // presentation/ui/screen/GameViewScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
+import android.util.Log
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -13,23 +14,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.chessmentor.domain.entity.AnalyzedMove
 import com.example.chessmentor.domain.entity.ChessColor
+import com.example.chessmentor.domain.entity.Game
 import com.example.chessmentor.domain.entity.Mistake
-import com.example.chessmentor.domain.entity.MistakeType
+import com.example.chessmentor.domain.entity.MoveQuality
 import com.example.chessmentor.domain.entity.User
 import com.example.chessmentor.presentation.ui.components.*
 import com.example.chessmentor.presentation.viewmodel.BoardViewModel
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Square
-import kotlin.math.abs
+
+private const val TAG = "GameViewScreen"
 
 @Composable
 fun GameViewScreen(
@@ -38,11 +40,64 @@ fun GameViewScreen(
     user: User?
 ) {
     val game by gameViewModel.selectedGame
-    val mistakes = gameViewModel.selectedGameMistakes
 
+    if (game == null) {
+        NoGameSelectedPlaceholder(paddingValues = paddingValues)
+        return
+    }
+
+    key(game!!.id) {
+        GameViewScreenContent(
+            paddingValues = paddingValues,
+            game = game!!,
+            gameViewModel = gameViewModel,
+            user = user
+        )
+    }
+}
+
+@Composable
+private fun NoGameSelectedPlaceholder(paddingValues: PaddingValues) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.SportsEsports,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Игра не выбрана",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun GameViewScreenContent(
+    paddingValues: PaddingValues,
+    game: Game,
+    gameViewModel: GameViewModel,
+    user: User?
+) {
     val context = LocalContext.current
+    val mistakes = gameViewModel.selectedGameMistakes
+    val analyzedMoves = gameViewModel.selectedGameAnalyzedMoves
+    val gameEvaluations = gameViewModel.selectedGameEvaluations
+
     val boardViewModel = remember {
-        BoardViewModel().apply { soundManager = SoundManager(context) }
+        Log.d(TAG, "Creating new BoardViewModel for game ${game.id}")
+        BoardViewModel().apply {
+            soundManager = SoundManager(context)
+        }
     }
 
     val selectedTheme = remember(user?.preferredTheme) {
@@ -54,26 +109,42 @@ fun GameViewScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { boardViewModel.soundManager?.release() }
-    }
-
-    LaunchedEffect(game?.id) {
-        game?.let {
-            val realEvaluations = gameViewModel.getLatestEvaluations()
-            boardViewModel.loadGame(it, mistakes, realEvaluations)
+        onDispose {
+            Log.d(TAG, "Disposing BoardViewModel")
+            boardViewModel.soundManager?.release()
         }
     }
 
-    if (game == null) return
+    LaunchedEffect(Unit) {
+        Log.d(TAG, "Loading game ${game.id}")
+        boardViewModel.loadGame(
+            game = game,
+            gameMistakes = mistakes.toList(),
+            gameAnalyzedMoves = analyzedMoves.toList(),
+            gameEvaluations = gameEvaluations.toList()
+        )
+    }
 
-    val currentGame = game!!
     val board by boardViewModel.board
     val currentMoveIndex by boardViewModel.currentMoveIndex
-    val currentEvaluation = boardViewModel.getCurrentEvaluation()
-    val currentMoveNotation = boardViewModel.getCurrentMoveNotation()
     val highlightedSquares by boardViewModel.highlightedSquares
     val lastMove by boardViewModel.lastMove
+
+    val currentEvaluation = boardViewModel.getCurrentEvaluation()
     val currentMistake = boardViewModel.getCurrentMistake()
+    val currentAnalyzedMove = boardViewModel.getCurrentAnalyzedMove()
+    val moves = boardViewModel.moves
+    val totalMoves = moves.size
+    val hasRealEvaluations = boardViewModel.hasRealEvaluations()
+
+    // ✅ Автоматически показываем стрелку для ошибок
+    val bestMoveArrow = remember(currentAnalyzedMove) {
+        if (currentAnalyzedMove?.isMistake() == true && currentAnalyzedMove.bestMove != null) {
+            parseBestMoveToArrow(currentAnalyzedMove.bestMove)
+        } else {
+            null
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -81,89 +152,309 @@ fun GameViewScreen(
             .padding(paddingValues)
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Доска с шкалой оценки
-        GameBoard(
-            board = board,
-            currentEvaluation = currentEvaluation,
-            playerColor = currentGame.playerColor,
-            currentMistake = currentMistake,
-            highlightedSquares = highlightedSquares,
-            lastMove = lastMove,
-            isFlipped = currentGame.playerColor == ChessColor.BLACK,
-            theme = selectedTheme
+        // 1. Evaluation Bar
+        EvaluationBarWithIndicator(
+            evaluation = currentEvaluation,
+            hasRealData = hasRealEvaluations,
+            modifier = Modifier.padding(
+                start = 12.dp,
+                end = 12.dp,
+                top = 8.dp,
+                bottom = 4.dp
+            )
         )
 
-        // Панель управления
-        ControlPanel(
-            currentMoveNotation = currentMoveNotation,
+        // 2. Доска со значком качества и стрелкой
+        GameBoardWithBadgeAndArrow(
+            board = board,
+            currentMistake = currentMistake,
+            currentAnalyzedMove = currentAnalyzedMove,
+            highlightedSquares = highlightedSquares,
+            lastMove = lastMove,
+            bestMoveArrow = bestMoveArrow,
+            isFlipped = game.playerColor == ChessColor.BLACK,
+            theme = selectedTheme,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .padding(horizontal = 12.dp)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 3. Карточка анализа
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+                .padding(horizontal = 12.dp)
+        ) {
+            MoveAnalysisCard(
+                currentMistake = currentMistake,
+                currentAnalyzedMove = currentAnalyzedMove,
+                currentEvaluation = currentEvaluation,
+                playerColor = game.playerColor
+            )
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // 4. Список ходов
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            HorizontalMoveList(
+                moves = moves,
+                currentMoveIndex = currentMoveIndex,
+                mistakes = mistakes.toList(),
+                onMoveClick = { index ->
+                    Log.d(TAG, "Move clicked: $index")
+                    boardViewModel.goToMove(index)
+                },
+                modifier = Modifier
+                    .padding(vertical = 6.dp)
+                    .height(36.dp)
+            )
+        }
+
+        // 5. Навигация
+        NavigationBar(
             currentMoveIndex = currentMoveIndex,
-            totalMoves = boardViewModel.moves.size,
+            totalMoves = totalMoves,
             onGoToStart = { boardViewModel.goToStart() },
             onGoToPrevious = { boardViewModel.goToPreviousMove() },
             onGoToNext = { boardViewModel.goToNextMove() },
             onGoToEnd = { boardViewModel.goToEnd() }
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Анализ текущего хода
-        MoveAnalysisSection(
-            currentMistake = currentMistake,
-            currentEvaluation = currentEvaluation,
-            playerColor = currentGame.playerColor,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 12.dp)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
-@Composable
-private fun GameBoard(
-    board: Board,
-    currentEvaluation: Int,
-    playerColor: ChessColor,
-    currentMistake: Mistake?,
-    highlightedSquares: Set<Square>,
-    lastMove: Pair<Square, Square>?,
-    isFlipped: Boolean,
-    theme: BoardTheme
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .padding(8.dp)
-    ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Используем EvaluationBar из компонентов
-            EvaluationBar(
-                evaluation = currentEvaluation,
-                modifier = Modifier
-                    .width(28.dp)
-                    .fillMaxHeight()
-                    .padding(end = 4.dp)
-            )
+// ==================== КОМПОНЕНТЫ ====================
 
-            ChessBoard(
-                board = board,
-                highlightedSquares = highlightedSquares,
-                lastMove = lastMove,
-                modifier = Modifier.fillMaxSize(),
-                flipped = isFlipped,
-                theme = theme,
-                animateMove = true
+@Composable
+private fun EvaluationBarWithIndicator(
+    evaluation: Int,
+    hasRealData: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        EvaluationBar(
+            evaluation = evaluation,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (!hasRealData) {
+            Text(
+                text = "⚠ Приблизительные данные",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
             )
         }
     }
 }
 
 @Composable
-private fun ControlPanel(
-    currentMoveNotation: String,
+private fun GameBoardWithBadgeAndArrow(
+    board: Board,
+    currentMistake: Mistake?,
+    currentAnalyzedMove: AnalyzedMove?,
+    highlightedSquares: Set<Square>,
+    lastMove: Pair<Square, Square>?,
+    bestMoveArrow: BoardArrow?,
+    isFlipped: Boolean,
+    theme: BoardTheme,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier = modifier) {
+        val boardSize = this.maxWidth
+
+        // Основная доска
+        ChessBoard(
+            board = board,
+            highlightedSquares = highlightedSquares,
+            lastMove = lastMove,
+            modifier = Modifier.fillMaxSize(),
+            flipped = isFlipped,
+            theme = theme,
+            animateMove = true
+        )
+
+        // ✅ Стрелка лучшего хода (показывается автоматически)
+        if (bestMoveArrow != null) {
+            ChessBoardWithArrows(
+                arrows = listOf(bestMoveArrow),
+                boardSize = boardSize,
+                isFlipped = isFlipped,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Значок качества хода
+        if (lastMove != null) {
+            val quality = currentAnalyzedMove?.quality
+            val shouldShowBadge = quality != null && quality in listOf(
+                MoveQuality.BRILLIANT,
+                MoveQuality.GREAT_MOVE,
+                MoveQuality.BEST_MOVE,
+                MoveQuality.BLUNDER,
+                MoveQuality.MISTAKE,
+                MoveQuality.INACCURACY
+            )
+
+            if (shouldShowBadge) {
+                val targetSquare = lastMove.second
+                val badgeOffset = calculateBadgeOffset(
+                    square = targetSquare,
+                    isFlipped = isFlipped,
+                    boardSize = boardSize
+                )
+
+                MoveQualityBadge(
+                    mistakeType = currentMistake?.mistakeType,
+                    moveQuality = quality,
+                    size = 28.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = badgeOffset.first, y = badgeOffset.second)
+                )
+            }
+        }
+    }
+}
+
+private fun calculateBadgeOffset(
+    square: Square,
+    isFlipped: Boolean,
+    boardSize: Dp
+): Pair<Dp, Dp> {
+    val file = square.file.ordinal
+    val rank = square.rank.ordinal
+
+    val (displayFile, displayRank) = if (isFlipped) {
+        Pair(7 - file, rank)
+    } else {
+        Pair(file, 7 - rank)
+    }
+
+    val squareSize = boardSize / 8
+    val badgeSize = 28.dp
+
+    val offsetX = squareSize * displayFile + squareSize - badgeSize - 2.dp
+    val offsetY = squareSize * displayRank + 2.dp
+
+    return Pair(offsetX, offsetY)
+}
+
+@Composable
+private fun MoveAnalysisCard(
+    currentMistake: Mistake?,
+    currentAnalyzedMove: AnalyzedMove?,
+    currentEvaluation: Int,
+    playerColor: ChessColor,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+    ) {
+        when {
+            // Ошибка
+            currentMistake != null -> {
+                CompactMistakeCard(mistake = currentMistake)
+            }
+
+            // Хороший ход
+            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() -> {
+                GoodMoveCard(analyzedMove = currentAnalyzedMove)
+            }
+
+            // Обычная позиция
+            else -> {
+                CompactPositionCard(
+                    evaluation = currentEvaluation,
+                    playerColor = playerColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoodMoveCard(
+    analyzedMove: AnalyzedMove,
+    modifier: Modifier = Modifier
+) {
+    val quality = analyzedMove.quality
+    val backgroundColor = quality.getColor().copy(alpha = 0.1f)
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = quality.getEmoji(),
+                style = MaterialTheme.typography.headlineLarge
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = quality.getDisplayName(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = quality.getColor()
+                )
+
+                Text(
+                    text = analyzedMove.san,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                analyzedMove.comment?.let { comment ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = comment,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            val evalChange = analyzedMove.evalChange
+            if (evalChange != 0) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = if (evalChange > 0) "+%.1f".format(evalChange / 100.0) else "%.1f".format(evalChange / 100.0),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (evalChange > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                    )
+                    Text(
+                        text = "пешек",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavigationBar(
     currentMoveIndex: Int,
     totalMoves: Int,
     onGoToStart: () -> Unit,
@@ -171,245 +462,94 @@ private fun ControlPanel(
     onGoToNext: () -> Unit,
     onGoToEnd: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (currentMoveIndex >= 0) {
-                    Text(
-                        text = "${(currentMoveIndex / 2) + 1}.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Text(
-                    text = currentMoveNotation,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            if (totalMoves > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { ((currentMoveIndex + 1).toFloat() / totalMoves).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                IconButton(onClick = onGoToStart, enabled = currentMoveIndex > -1) {
-                    Icon(Icons.Default.FirstPage, "В начало", Modifier.size(28.dp))
-                }
-                IconButton(onClick = onGoToPrevious, enabled = currentMoveIndex > -1) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", Modifier.size(28.dp))
-                }
-                IconButton(onClick = onGoToNext, enabled = currentMoveIndex < totalMoves - 1) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, "Вперёд", Modifier.size(28.dp))
-                }
-                IconButton(onClick = onGoToEnd, enabled = currentMoveIndex < totalMoves - 1) {
-                    Icon(Icons.Default.LastPage, "В конец", Modifier.size(28.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MoveAnalysisSection(
-    currentMistake: Mistake?,
-    currentEvaluation: Int,
-    playerColor: ChessColor,
-    modifier: Modifier = Modifier
-) {
-    Box(modifier = modifier) {
-        if (currentMistake != null) {
-            MistakeCard(mistake = currentMistake, playerColor = playerColor)
-        } else {
-            GoodMoveCard(currentEvaluation = currentEvaluation, playerColor = playerColor)
-        }
-    }
-}
-
-@Composable
-private fun GoodMoveCard(
-    currentEvaluation: Int,
-    playerColor: ChessColor
-) {
-    val playerEval = if (playerColor == ChessColor.WHITE) currentEvaluation else -currentEvaluation
-    val evalText = formatEvaluation(playerEval)
-    val cardInfo = getGoodMoveCardInfo(playerEval)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = cardInfo.backgroundColor)
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp
     ) {
         Row(
-            modifier = Modifier.padding(20.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onGoToStart,
+                enabled = currentMoveIndex > -1
+            ) {
                 Icon(
-                    imageVector = cardInfo.icon,
-                    contentDescription = null,
-                    tint = cardInfo.contentColor,
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = cardInfo.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = cardInfo.contentColor
-                    )
-                    Text(
-                        text = "Ваша оценка позиции",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = cardInfo.contentColor.copy(alpha = 0.7f)
-                    )
-                }
-            }
-            Text(
-                text = evalText,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = cardInfo.contentColor
-            )
-        }
-    }
-}
-
-private data class GoodMoveCardInfo(
-    val backgroundColor: Color,
-    val contentColor: Color,
-    val icon: ImageVector,
-    val title: String
-)
-
-@Composable
-private fun getGoodMoveCardInfo(playerEval: Int): GoodMoveCardInfo {
-    return when {
-        playerEval > 200 -> GoodMoveCardInfo(
-            Color(0xFF4CAF50).copy(alpha = 0.15f), Color(0xFF2E7D32),
-            Icons.Default.CheckCircle, "Отличная позиция"
-        )
-        playerEval > 50 -> GoodMoveCardInfo(
-            Color(0xFF8BC34A).copy(alpha = 0.15f), Color(0xFF558B2F),
-            Icons.Default.Check, "Хороший ход"
-        )
-        playerEval < -200 -> GoodMoveCardInfo(
-            Color(0xFFFF5722).copy(alpha = 0.15f), Color(0xFFD84315),
-            Icons.Default.Warning, "Тяжёлая позиция"
-        )
-        playerEval < -50 -> GoodMoveCardInfo(
-            Color(0xFFFF9800).copy(alpha = 0.15f), Color(0xFFE65100),
-            Icons.Default.Info, "Сложная позиция"
-        )
-        else -> GoodMoveCardInfo(
-            MaterialTheme.colorScheme.surfaceVariant,
-            MaterialTheme.colorScheme.onSurfaceVariant,
-            Icons.Default.Balance, "Равная позиция"
-        )
-    }
-}
-
-private fun formatEvaluation(centipawns: Int): String {
-    return when {
-        centipawns > 50000 -> "+M${(100000 - centipawns + 1) / 2}"
-        centipawns < -50000 -> "-M${(100000 + centipawns + 1) / 2}"
-        else -> {
-            val pawns = centipawns / 100.0
-            if (pawns >= 0) "+%.1f".format(pawns) else "%.1f".format(pawns)
-        }
-    }
-}
-
-@Composable
-fun MistakeCard(mistake: Mistake, playerColor: ChessColor = mistake.color) {
-    val backgroundColor = when (mistake.mistakeType) {
-        MistakeType.BLUNDER -> Color(0xFFFFEBEE)
-        MistakeType.MISTAKE -> Color(0xFFFFF3E0)
-        MistakeType.INACCURACY -> Color(0xFFFFFDE7)
-    }
-    val accentColor = mistake.mistakeType.getColor()
-    val lossText = if (mistake.evaluationLoss > 50000) "Упущен мат!"
-    else "-${String.format("%.1f", mistake.getEvaluationLossInPawns())} пешки"
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(mistake.mistakeType.getIcon(), null, tint = accentColor, modifier = Modifier.size(28.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier.size(16.dp)
-                            .background(if (mistake.color == ChessColor.WHITE) Color.White else Color.Black, RoundedCornerShape(4.dp))
-                            .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(mistake.mistakeType.getDisplayName(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accentColor)
-                        Text("Ход ${mistake.moveNumber}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    imageVector = Icons.Default.FirstPage,
+                    contentDescription = "В начало",
+                    modifier = Modifier.size(28.dp),
+                    tint = if (currentMoveIndex > -1) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                     }
-                }
-                Card(colors = CardDefaults.cardColors(containerColor = accentColor.copy(alpha = 0.15f)), shape = RoundedCornerShape(8.dp)) {
-                    Text(lossText, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = accentColor)
-                }
+                )
             }
-            Spacer(Modifier.height(16.dp))
-            Row(
-                Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(8.dp)).padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+
+            IconButton(
+                onClick = onGoToPrevious,
+                enabled = currentMoveIndex > -1
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Сыграно", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    Text(mistake.userMove, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F))
-                }
-                Icon(Icons.Default.CompareArrows, null, tint = Color.Gray, modifier = Modifier.size(24.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Лучше было", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    Text(mistake.bestMove, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Назад",
+                    modifier = Modifier.size(28.dp),
+                    tint = if (currentMoveIndex > -1) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    }
+                )
             }
-            if (!mistake.comment.isNullOrBlank()) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Lightbulb, null, tint = Color(0xFFFFA000), modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(mistake.comment, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, lineHeight = 20.sp)
-                }
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "${currentMoveIndex + 1}/$totalMoves",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+
+            IconButton(
+                onClick = onGoToNext,
+                enabled = currentMoveIndex < totalMoves - 1
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Вперёд",
+                    modifier = Modifier.size(28.dp),
+                    tint = if (currentMoveIndex < totalMoves - 1) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    }
+                )
+            }
+
+            IconButton(
+                onClick = onGoToEnd,
+                enabled = currentMoveIndex < totalMoves - 1
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LastPage,
+                    contentDescription = "В конец",
+                    modifier = Modifier.size(28.dp),
+                    tint = if (currentMoveIndex < totalMoves - 1) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    }
+                )
             }
         }
     }
