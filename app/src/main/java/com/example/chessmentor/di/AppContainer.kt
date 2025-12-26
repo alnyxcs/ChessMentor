@@ -1,4 +1,4 @@
-// di/AppContainer.kt
+﻿// di/AppContainer.kt
 package com.example.chessmentor.di
 
 import android.content.Context
@@ -91,7 +91,7 @@ class AppContainer private constructor(private val context: Context) {
             analyzedMoveRepository = analyzedMoveRepository,
             userRepository = userRepository,
             chessEngine = chessEngine,
-            engineSettingsRepository = engineSettingsRepository  // ✅ НОВОЕ
+            engineSettingsRepository = engineSettingsRepository
         )
     }
 
@@ -100,6 +100,16 @@ class AppContainer private constructor(private val context: Context) {
             userRepository = userRepository,
             mistakeRepository = mistakeRepository,
             exerciseRepository = exerciseRepository
+        )
+    }
+    
+    // ✅ НОВОЕ: Генерация упражнений из ошибок
+    val generateExercisesFromMistakesUseCase by lazy {
+        GenerateExercisesFromMistakesUseCase(
+            mistakeRepository = mistakeRepository,
+            analyzedMoveRepository = analyzedMoveRepository,
+            exerciseRepository = exerciseRepository,
+            gameRepository = gameRepository
         )
     }
 

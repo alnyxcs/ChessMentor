@@ -1,4 +1,4 @@
-package com.example.chessmentor.data.repository.room
+﻿package com.example.chessmentor.data.repository.room
 
 import com.example.chessmentor.data.local.dao.MistakeDao
 import com.example.chessmentor.domain.entity.Mistake
@@ -18,6 +18,12 @@ class RoomMistakeRepository(private val mistakeDao: MistakeDao) : MistakeReposit
 
     override suspend fun findByUserId(userId: Long): List<Mistake> = withContext(Dispatchers.IO) {
         mistakeDao.findByUserId(userId)
+    }
+    
+    // ✅ НОВОЕ: Поиск по нескольким играм
+    override suspend fun findByGameIds(gameIds: List<Long>): List<Mistake> = withContext(Dispatchers.IO) {
+        if (gameIds.isEmpty()) return@withContext emptyList()
+        mistakeDao.findByGameIds(gameIds)
     }
 
     override suspend fun save(mistake: Mistake): Mistake = withContext(Dispatchers.IO) {

@@ -1,4 +1,4 @@
-package com.example.chessmentor.domain.repository
+﻿package com.example.chessmentor.domain.repository
 
 import com.example.chessmentor.domain.entity.Mistake
 import com.example.chessmentor.domain.entity.MistakeType
@@ -6,7 +6,11 @@ import com.example.chessmentor.domain.entity.MistakeType
 interface MistakeRepository {
     suspend fun findById(id: Long): Mistake?
     suspend fun findByGameId(gameId: Long): List<Mistake>
-    suspend fun findByUserId(userId: Long): List<Mistake> // <-- Убедитесь, что этот метод есть
+    suspend fun findByUserId(userId: Long): List<Mistake>
+    
+    // ✅ НОВОЕ: Поиск по нескольким играм (для генерации упражнений)
+    suspend fun findByGameIds(gameIds: List<Long>): List<Mistake>
+    
     suspend fun save(mistake: Mistake): Mistake
     suspend fun saveAll(mistakes: List<Mistake>): List<Mistake>
     suspend fun update(mistake: Mistake): Mistake
@@ -21,5 +25,4 @@ interface MistakeRepository {
     suspend fun countByUserIdAndType(userId: Long, type: MistakeType): Int
     suspend fun getMostFrequentThemesByUserId(userId: Long, limit: Int): Map<Long, Int>
     suspend fun getAverageEvaluationLossByUserId(userId: Long): Double?
-
 }
