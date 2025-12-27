@@ -9,29 +9,34 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
 
     override suspend fun findById(id: Long): Exercise? = exerciseDao.findById(id)
 
-    override suspend fun findSuitableExercise(userId: Long, userRating: Int): Exercise? {
-        // ✅ УЛУЧШЕНО: Используем оптимизированный запрос с фильтром по рейтингу
-        val ratingRange = 200 // ±200 от рейтинга пользователя
+    override suspend fun findSuitableExercise(userId: Long, userRating: Int, excludeId: Long): Exercise? {
+        val ratingRange = 300
         return exerciseDao.findUnsolvedExercise(
             userId = userId,
             minRating = userRating - ratingRange,
-            maxRating = userRating + ratingRange
+            maxRating = userRating + ratingRange,
+            excludeId = excludeId
         )
     }
 
     override suspend fun findByTheme(themeId: Long): List<Exercise> = 
         exerciseDao.findByTheme(themeId)
     
-    // ✅ НОВОЕ: Поиск по игре и ходу
     override suspend fun findBySourceGameAndMove(gameId: Long, moveNumber: Int): Exercise? {
-        // Упрощённый вариант - ищем по gameId
-        // Можно добавить поле moveNumber в Exercise если нужна точность
         return exerciseDao.findBySourceGame(gameId)
     }
     
-    // ✅ НОВОЕ: Упражнения пользователя
     override suspend fun findByUserId(userId: Long): List<Exercise> = 
         exerciseDao.findByUserId(userId)
+    
+    override suspend fun findAnyExerciseExcept(excludeId: Long): Exercise? =
+        exerciseDao.findAnyExerciseExcept(excludeId)
+    
+    override suspend fun findByFen(fen: String): Exercise? = exerciseDao.findByFen(fen)
+    
+    override suspend fun deleteDuplicates() = exerciseDao.deleteDuplicates()
+    
+    override suspend fun countExercises(): Int = exerciseDao.countExercises()
 
     override suspend fun saveExercise(exercise: Exercise): Exercise {
         val id = exerciseDao.insertExercise(exercise)
@@ -46,3 +51,5 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
     override suspend fun getAttemptsByUserId(userId: Long): List<ExerciseAttempt> = 
         exerciseDao.getAttemptsByUserId(userId)
 }
+
+

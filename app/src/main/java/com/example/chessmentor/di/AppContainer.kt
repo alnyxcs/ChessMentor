@@ -109,7 +109,8 @@ class AppContainer private constructor(private val context: Context) {
             mistakeRepository = mistakeRepository,
             analyzedMoveRepository = analyzedMoveRepository,
             exerciseRepository = exerciseRepository,
-            gameRepository = gameRepository
+            gameRepository = gameRepository,
+            chessEngine = chessEngine
         )
     }
 
