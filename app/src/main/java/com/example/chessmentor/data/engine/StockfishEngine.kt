@@ -1,16 +1,17 @@
-// data/engine/StockfishEngine.kt
 package com.example.chessmentor.data.engine
 
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /**
- * Реализация ChessEngine на базе локального Stockfish
+ * Реализация ChessEngine на базе локального Stockfish.
+ * Адаптировано под ваш StockfishProcess (suspend функции).
  */
 class StockfishEngine(context: Context) : ChessEngine {
 
@@ -21,26 +22,22 @@ class StockfishEngine(context: Context) : ChessEngine {
     private var threads = 2
     private var hashSizeMB = 32
 
-    // Кэш для ускорения повторных запросов
+    // Кэши
     private val evalCache = object : LinkedHashMap<String, Int>(100, 0.75f, true) {
-        override fun removeEldestEntry(eldest: Map.Entry<String, Int>): Boolean {
-            return size > 5000
-        }
+        override fun removeEldestEntry(eldest: Map.Entry<String, Int>): Boolean = size > 5000
     }
 
     private val moveCache = object : LinkedHashMap<String, String>(100, 0.75f, true) {
-        override fun removeEldestEntry(eldest: Map.Entry<String, String>): Boolean {
-            return size > 5000
-        }
+        override fun removeEldestEntry(eldest: Map.Entry<String, String>): Boolean = size > 5000
+    }
+
+    private val lineCache = object : LinkedHashMap<String, AnalysisLine>(100, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, AnalysisLine>): Boolean = size > 1000
     }
 
     companion object {
         private const val TAG = "StockfishEngine"
-        private const val DEFAULT_DEPTH = 18
-
-        // Матовые константы
         const val MATE_SCORE = 100000
-        const val MATE_THRESHOLD = 90000  // Всё что >= этого — мат
     }
 
     override suspend fun init(): Boolean = withContext(Dispatchers.IO) {
@@ -52,6 +49,7 @@ class StockfishEngine(context: Context) : ChessEngine {
 
             Log.d(TAG, "Initializing Stockfish engine...")
 
+            // Ваш метод process.start() возвращает Boolean
             val started = process.start()
             if (!started) {
                 Log.e(TAG, "Failed to start Stockfish process")
@@ -59,11 +57,13 @@ class StockfishEngine(context: Context) : ChessEngine {
             }
 
             try {
+                // Отправляем настройки
                 process.sendCommand("setoption name Threads value $threads")
                 process.sendCommand("setoption name Hash value $hashSizeMB")
                 process.sendCommand("setoption name MultiPV value 1")
 
                 process.sendCommand("isready")
+                // waitForResponse - это suspend функция в вашем классе
                 val ready = process.waitForResponse("readyok", 5000)
 
                 if (ready != null) {
@@ -72,39 +72,30 @@ class StockfishEngine(context: Context) : ChessEngine {
                     return@withContext true
                 } else {
                     Log.e(TAG, "Stockfish not ready")
-                    process.stop()
+                    process.stop() // suspend
                     return@withContext false
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error during initialization", e)
-                process.stop()
+                process.stop() // suspend
                 return@withContext false
             }
         }
     }
 
     override suspend fun evaluate(fen: String, depthLimit: Int): Int = withContext(Dispatchers.IO) {
-        evalCache[fen]?.let {
-            Log.d(TAG, "Cache hit for evaluation: $fen -> $it")
-            return@withContext it
-        }
+        evalCache[fen]?.let { return@withContext it }
 
         mutex.withLock {
-            if (!ensureReady()) {
-                Log.e(TAG, "Engine not ready for evaluation")
-                return@withContext 0
-            }
+            if (!ensureReady()) return@withContext 0
 
             try {
                 process.sendCommand("position fen $fen")
                 process.sendCommand("go depth $depthLimit")
 
                 val result = parseAnalysisResult(depthLimit)
-
                 evalCache[fen] = result.score
-
-                Log.d(TAG, "Evaluation complete: $fen -> ${result.score} (mate=${result.mate})")
                 result.score
 
             } catch (e: Exception) {
@@ -115,26 +106,17 @@ class StockfishEngine(context: Context) : ChessEngine {
     }
 
     override suspend fun getBestMove(fen: String, depthLimit: Int): String? = withContext(Dispatchers.IO) {
-        moveCache[fen]?.let {
-            Log.d(TAG, "Cache hit for best move: $fen -> $it")
-            return@withContext it
-        }
+        moveCache[fen]?.let { return@withContext it }
 
         mutex.withLock {
-            if (!ensureReady()) {
-                Log.e(TAG, "Engine not ready for best move")
-                return@withContext null
-            }
+            if (!ensureReady()) return@withContext null
 
             try {
                 process.sendCommand("position fen $fen")
                 process.sendCommand("go depth $depthLimit")
 
                 val result = parseAnalysisResult(depthLimit)
-
                 result.move?.let { moveCache[fen] = it }
-
-                Log.d(TAG, "Best move found: $fen -> ${result.move}")
                 result.move
 
             } catch (e: Exception) {
@@ -144,164 +126,177 @@ class StockfishEngine(context: Context) : ChessEngine {
         }
     }
 
-    override fun destroy() {
-        Log.d(TAG, "Destroying engine...")
+    override suspend fun getBestMoveWithLine(
+        fen: String,
+        depthLimit: Int
+    ): AnalysisLine? = withContext(Dispatchers.IO) {
 
-        kotlinx.coroutines.runBlocking {
-            mutex.withLock {
-                process.stop()
-                isInitialized = false
-                evalCache.clear()
-                moveCache.clear()
+        val cacheKey = "$fen:$depthLimit"
+        lineCache[cacheKey]?.let { return@withContext it }
+
+        mutex.withLock {
+            if (!ensureReady()) return@withContext null
+
+            try {
+                process.sendCommand("position fen $fen")
+                process.sendCommand("go depth $depthLimit")
+
+                val result = parseAnalysisWithPV(depthLimit)
+                result?.let { lineCache[cacheKey] = it }
+                result
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting line", e)
+                null
             }
         }
-
-        Log.d(TAG, "Engine destroyed")
     }
 
-    // ✅ НОВОЕ: Реализация метода setOption из интерфейса
+    override fun destroy() {
+        // process.stop() в вашем коде - suspend функция.
+        // Вызывать её из синхронного destroy() нужно осторожно.
+        // Здесь используем GlobalScope или runBlocking, так как destroy обычно вызывается при закрытии
+        kotlinx.coroutines.runBlocking {
+            try {
+                mutex.withLock {
+                    process.stop()
+                    isInitialized = false
+                    evalCache.clear()
+                    moveCache.clear()
+                    lineCache.clear()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error destroying engine", e)
+            }
+        }
+    }
+
     override suspend fun setOption(name: String, value: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             when (name.lowercase()) {
-                "threads" -> {
-                    threads = value.toIntOrNull()?.coerceIn(1, 8) ?: threads
-                    Log.d(TAG, "Setting Threads = $threads")
-                }
-                "hash" -> {
-                    hashSizeMB = value.toIntOrNull()?.coerceIn(1, 1024) ?: hashSizeMB
-                    Log.d(TAG, "Setting Hash = $hashSizeMB MB")
-                }
+                "threads" -> threads = value.toIntOrNull()?.coerceIn(1, 8) ?: threads
+                "hash" -> hashSizeMB = value.toIntOrNull()?.coerceIn(1, 1024) ?: hashSizeMB
             }
 
             if (isInitialized && process.isRunning()) {
                 process.sendCommand("setoption name $name value $value")
-                // Ждём подтверждения
                 process.sendCommand("isready")
                 process.waitForResponse("readyok", 2000)
-                Log.d(TAG, "Option $name set to $value")
             }
         }
     }
 
     private suspend fun ensureReady(): Boolean {
         if (!isInitialized || !process.isRunning()) {
-            Log.d(TAG, "Engine not ready, initializing...")
             return init()
         }
-
-        if (!process.testConnection()) {
-            Log.w(TAG, "Engine not responding, restarting...")
+        if (!process.testConnection()) { // suspend в вашем коде
             process.stop()
             return init()
         }
-
         return true
     }
 
-    private suspend fun parseAnalysisResult(targetDepth: Int): AnalysisResult {
+    // --- Парсинг ---
+
+    private suspend fun parseAnalysisResult(targetDepth: Int): SimpleAnalysisResult {
         var bestMove: String? = null
         var score = 0
         var mate: Int? = null
         var currentDepth = 0
 
         val startTime = System.currentTimeMillis()
-        val timeout = 30000L
+        val timeout = 15000L
 
+        // Используем readLine из вашего процесса (с таймаутом)
         while (System.currentTimeMillis() - startTime < timeout) {
-            val line = process.readLine(100)
+            val line = process.readLine(100) ?: continue // suspend вызов
 
-            if (line != null) {
-                when {
-                    line.startsWith("info depth") && !line.contains("currmove") -> {
-                        parseInfoLine(line)?.let { info ->
-                            if (info.depth >= currentDepth) {
-                                currentDepth = info.depth
-                                score = info.score
-                                mate = info.mate
-                            }
-                        }
-                    }
-
-                    line.startsWith("bestmove") -> {
-                        bestMove = line
-                            .substringAfter("bestmove ")
-                            .substringBefore(" ")
-                            .trim()
-
-                        Log.d(TAG, "Analysis complete: depth=$currentDepth, score=$score, mate=$mate, move=$bestMove")
-                        return AnalysisResult(bestMove, score, mate)
+            if (line.startsWith("info depth") && !line.contains("currmove")) {
+                parseInfoLine(line)?.let { info ->
+                    if (info.depth >= currentDepth) {
+                        currentDepth = info.depth
+                        score = info.score
+                        mate = info.mate
                     }
                 }
-            }
-
-            if (currentDepth >= targetDepth) {
-                kotlinx.coroutines.delay(100)
+            } else if (line.startsWith("bestmove")) {
+                bestMove = line.substringAfter("bestmove ").substringBefore(" ").trim()
+                break
             }
         }
 
-        Log.w(TAG, "Analysis timeout reached")
-        return AnalysisResult(bestMove, score, mate)
+        return SimpleAnalysisResult(bestMove, score, mate)
+    }
+
+    private suspend fun parseAnalysisWithPV(targetDepth: Int): AnalysisLine? {
+        var bestMove: String? = null
+        var score = 0
+        var mate: Int? = null
+        var pv = listOf<String>()
+        var currentDepth = 0
+
+        val startTime = System.currentTimeMillis()
+        val timeout = 15000L
+
+        while (System.currentTimeMillis() - startTime < timeout) {
+            val line = process.readLine(100) ?: continue // suspend вызов
+
+            if (line.startsWith("info") && line.contains(" pv ")) {
+                val depth = Regex("""depth (\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+                if (depth >= currentDepth) {
+                    currentDepth = depth
+
+                    if (line.contains("score mate")) {
+                        mate = Regex("""score mate (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                        score = if (mate != null) {
+                            if (mate > 0) MATE_SCORE - (mate * 100) else -MATE_SCORE + (abs(mate) * 100)
+                        } else 0
+                    } else if (line.contains("score cp")) {
+                        mate = null
+                        score = Regex("""score cp (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    }
+
+                    val pvString = line.substringAfter(" pv ")
+                    pv = pvString.split(" ").filter { it.length in 4..5 }.take(6)
+                }
+            } else if (line.startsWith("bestmove")) {
+                bestMove = line.substringAfter("bestmove ").substringBefore(" ").trim()
+                break
+            }
+        }
+
+        return if (bestMove != null) {
+            AnalysisLine(
+                bestMove = bestMove,
+                score = score,
+                mateIn = mate,
+                principalVariation = if (pv.isNotEmpty()) pv else listOf(bestMove)
+            )
+        } else null
     }
 
     private fun parseInfoLine(line: String): InfoLine? {
         try {
-            val depth = Regex("""depth (\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
-                ?: return null
-
+            val depth = Regex("""depth (\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: return null
             var score = 0
             var mate: Int? = null
 
-            when {
-                line.contains("score mate") -> {
-                    mate = Regex("""score mate (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
-
-                    if (mate != null) {
-                        score = if (mate > 0) {
-                            MATE_SCORE - abs(mate) * 100
-                        } else {
-                            -MATE_SCORE + abs(mate) * 100
-                        }
-
-                        Log.d(TAG, "Mate parsed: mate in $mate moves -> score=$score")
-                    }
+            if (line.contains("score mate")) {
+                mate = Regex("""score mate (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                if (mate != null) {
+                    score = if (mate > 0) MATE_SCORE - abs(mate) * 100 else -MATE_SCORE + abs(mate) * 100
                 }
-
-                line.contains("score cp") -> {
-                    score = Regex("""score cp (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                }
+            } else if (line.contains("score cp")) {
+                score = Regex("""score cp (-?\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             }
-
             return InfoLine(depth, score, mate)
-
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse info line: $line", e)
             return null
         }
     }
 
-    fun setThreads(threads: Int) {
-        this.threads = threads.coerceIn(1, 8)
-        if (isInitialized && process.isRunning()) {
-            process.sendCommand("setoption name Threads value ${this.threads}")
-        }
-    }
-
-    fun setHashSize(sizeMB: Int) {
-        this.hashSizeMB = sizeMB.coerceIn(1, 1024)
-        if (isInitialized && process.isRunning()) {
-            process.sendCommand("setoption name Hash value ${this.hashSizeMB}")
-        }
-    }
-
-    private data class AnalysisResult(
-        val move: String?,
-        val score: Int,
-        val mate: Int?
-    )
-
-    private data class InfoLine(
-        val depth: Int,
-        val score: Int,
-        val mate: Int?
-    )
+    private data class SimpleAnalysisResult(val move: String?, val score: Int, val mate: Int?)
+    private data class InfoLine(val depth: Int, val score: Int, val mate: Int?)
 }

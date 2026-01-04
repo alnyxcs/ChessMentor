@@ -9,7 +9,7 @@ import com.example.chessmentor.data.repository.SharedPrefsEngineSettingsReposito
 import com.example.chessmentor.data.repository.room.*
 import com.example.chessmentor.domain.repository.*
 import com.example.chessmentor.domain.usecase.*
-
+import com.example.chessmentor.domain.analysis.SemanticMistakeAnalyzer
 
 class AppContainer private constructor(private val context: Context) {
 
@@ -29,7 +29,7 @@ class AppContainer private constructor(private val context: Context) {
         AppDatabase.getInstance(context)
     }
 
-    // ✅ НОВОЕ: Настройки движка
+    // Настройки движка
     val engineSettingsRepository: EngineSettingsRepository by lazy {
         SharedPrefsEngineSettingsRepository(context)
     }
@@ -45,6 +45,11 @@ class AppContainer private constructor(private val context: Context) {
     private val mistakeDao by lazy { database.mistakeDao() }
     private val exerciseDao by lazy { database.exerciseDao() }
     private val analyzedMoveDao by lazy { database.analyzedMoveDao() }
+
+    // ✅ ИСПРАВЛЕНО: Передаём движок в анализатор
+    val semanticMistakeAnalyzer by lazy {
+        SemanticMistakeAnalyzer(chessEngine)
+    }
 
     // Репозитории
     val userRepository: UserRepository by lazy {
@@ -83,7 +88,6 @@ class AppContainer private constructor(private val context: Context) {
         )
     }
 
-    // ✅ ОБНОВЛЕНО: Передаём настройки движка
     val analyzeGameUseCase by lazy {
         AnalyzeGameUseCase(
             gameRepository = gameRepository,
@@ -102,8 +106,7 @@ class AppContainer private constructor(private val context: Context) {
             exerciseRepository = exerciseRepository
         )
     }
-    
-    // ✅ НОВОЕ: Генерация упражнений из ошибок
+
     val generateExercisesFromMistakesUseCase by lazy {
         GenerateExercisesFromMistakesUseCase(
             mistakeRepository = mistakeRepository,

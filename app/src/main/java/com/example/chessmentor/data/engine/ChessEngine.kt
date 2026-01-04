@@ -3,6 +3,9 @@ package com.example.chessmentor.data.engine
 
 import kotlin.math.abs
 
+/**
+ * Интерфейс шахматного движка
+ */
 interface ChessEngine {
 
     suspend fun init(): Boolean
@@ -10,8 +13,15 @@ interface ChessEngine {
     suspend fun getBestMove(fen: String, depthLimit: Int = 15): String?
     fun destroy()
 
-    // ✅ НОВОЕ: Установка опций движка (Threads, Hash, и т.д.)
     suspend fun setOption(name: String, value: String)
+
+    /**
+     * НОВОЕ: Получить лучший ход вместе с линией продолжения (PV)
+     * @param fen Позиция в формате FEN
+     * @param depthLimit Глубина анализа
+     * @return Результат анализа с линией или null при ошибке
+     */
+    suspend fun getBestMoveWithLine(fen: String, depthLimit: Int = 15): AnalysisLine?
 
     companion object {
         const val MATE_VALUE = 100000
@@ -46,3 +56,13 @@ interface ChessEngine {
         }
     }
 }
+
+/**
+ * Результат анализа с линией продолжения
+ */
+data class AnalysisLine(
+    val bestMove: String,                    // Лучший ход (UCI)
+    val score: Int,                          // Оценка в сантипешках
+    val mateIn: Int?,                        // Мат в N ходов (null если не мат)
+    val principalVariation: List<String>     // Главная линия (до 6 ходов)
+)

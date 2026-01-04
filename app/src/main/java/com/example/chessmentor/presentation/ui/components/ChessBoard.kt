@@ -5,25 +5,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Square
 import kotlin.math.min
 
+// РўРµРјС‹ РѕСЃС‚Р°РІР»СЏРµРј Р·РґРµСЃСЊ (РёР»Рё РјРѕР¶РЅРѕ РІС‹РЅРµСЃС‚Рё РІ BoardTheme.kt)
 data class BoardTheme(
     val lightSquare: Color,
     val darkSquare: Color,
@@ -36,34 +31,13 @@ object BoardThemes {
     val Classic = BoardTheme(
         lightSquare = Color(0xFFF0D9B5),
         darkSquare = Color(0xFFB58863),
-        highlightColor = Color(0x9964DD17),
+        highlightColor = Color(0xCC64DD17),
         lastMoveColor = Color(0x99FFD600),
-        name = "Классическая"
+        name = "РљР»Р°СЃСЃРёС‡РµСЃРєР°СЏ"
     )
-
-    val Blue = BoardTheme(
-        lightSquare = Color(0xFFDEE3E6),
-        darkSquare = Color(0xFF8CA2AD),
-        highlightColor = Color(0x9964DD17),
-        lastMoveColor = Color(0x99FFEB3B),
-        name = "Синяя"
-    )
-
-    val Green = BoardTheme(
-        lightSquare = Color(0xFFEBECD0),
-        darkSquare = Color(0xFF779556),
-        highlightColor = Color(0x99FFD54F),
-        lastMoveColor = Color(0x99FFA726),
-        name = "Зеленая"
-    )
-
-    val Wood = BoardTheme(
-        lightSquare = Color(0xFFFFCE9E),
-        darkSquare = Color(0xFFD18B47),
-        highlightColor = Color(0x9964DD17),
-        lastMoveColor = Color(0x99FF6F00),
-        name = "Дерево"
-    )
+    val Blue = BoardTheme(Color(0xFFDEE3E6), Color(0xFF8CA2AD), Color(0xCC64DD17), Color(0x99FFEB3B), "РЎРёРЅСЏСЏ")
+    val Green = BoardTheme(Color(0xFFEBECD0), Color(0xFF779556), Color(0x99FFD54F), Color(0x99FFA726), "Р—РµР»РµРЅР°СЏ")
+    val Wood = BoardTheme(Color(0xFFFFCE9E), Color(0xFFD18B47), Color(0xCC64DD17), Color(0x99FF6F00), "Р”РµСЂРµРІРѕ")
 
     fun getAll() = listOf(Classic, Blue, Green, Wood)
 }
@@ -79,6 +53,7 @@ data class PieceAnimation(
 fun ChessBoard(
     board: Board,
     highlightedSquares: Set<Square> = emptySet(),
+    arrows: List<BoardArrow> = emptyList(), // РСЃРїРѕР»СЊР·СѓРµРј РєР»Р°СЃСЃ РёР· ChessBoardArrow.kt
     lastMove: Pair<Square, Square>? = null,
     modifier: Modifier = Modifier,
     flipped: Boolean = false,
@@ -87,12 +62,14 @@ fun ChessBoard(
     onSquareClick: ((Square) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    var animatingPiece by remember { mutableStateOf<PieceAnimation?>(null) }
+
+    // РЎРѕСЃС‚РѕСЏРЅРёРµ Р°РЅРёРјР°С†РёРё (РёСЃРїРѕР»СЊР·СѓРµРј Pair, С‡С‚РѕР±С‹ РЅРµ РїСѓС‚Р°С‚СЊСЃСЏ СЃ РєР»Р°СЃСЃР°РјРё)
+    var animatingPieceState by remember { mutableStateOf<Pair<Piece, Pair<Square, Square>>?>(null) }
 
     val animationProgress by animateFloatAsState(
-        targetValue = if (animatingPiece != null) 1f else 0f,
+        targetValue = if (animatingPieceState != null) 1f else 0f,
         animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-        finishedListener = { animatingPiece = null },
+        finishedListener = { animatingPieceState = null },
         label = "piece_move"
     )
 
@@ -100,71 +77,51 @@ fun ChessBoard(
         if (lastMove != null && animateMove) {
             val piece = board.getPiece(lastMove.second)
             if (piece != Piece.NONE) {
-                animatingPiece = PieceAnimation(
-                    piece = piece,
-                    fromSquare = lastMove.first,
-                    toSquare = lastMove.second,
-                    progress = 0f
-                )
+                animatingPieceState = piece to lastMove
             }
         }
     }
 
-    Box(
-        modifier = modifier.background(Color.Black)
-    ) {
+    Box(modifier = modifier.background(Color.Black)) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(flipped) {
                     detectTapGestures { offset ->
-                        // Адаптивная логика клика
                         val boardSize = min(size.width, size.height)
                         val squareSize = boardSize / 8
                         val xOffset = (size.width - boardSize) / 2
                         val yOffset = (size.height - boardSize) / 2
-
                         val localX = offset.x - xOffset
                         val localY = offset.y - yOffset
-
                         val file = (localX / squareSize).toInt()
                         val rank = (localY / squareSize).toInt()
-
                         if (file in 0..7 && rank in 0..7) {
                             val actualRank = if (flipped) rank else 7 - rank
                             val actualFile = if (flipped) 7 - file else file
-                            val square = Square.squareAt(actualRank * 8 + actualFile)
-                            onSquareClick?.invoke(square)
+                            onSquareClick?.invoke(Square.squareAt(actualRank * 8 + actualFile))
                         }
                     }
                 }
         ) {
-            // Адаптивная отрисовка
             val boardSize = min(size.width, size.height)
             val squareSize = boardSize / 8
             val xOffset = (size.width - boardSize) / 2
             val yOffset = (size.height - boardSize) / 2
 
             translate(left = xOffset, top = yOffset) {
-                // 1. Рисуем клетки
+                // 1. РљР»РµС‚РєРё
                 for (rank in 0..7) {
                     for (file in 0..7) {
                         val actualRank = if (flipped) rank else 7 - rank
                         val actualFile = if (flipped) 7 - file else file
                         val square = Square.squareAt(actualRank * 8 + actualFile)
                         val isLight = (rank + file) % 2 == 0
-
-                        // Базовый цвет
                         var squareColor = if (isLight) theme.lightSquare else theme.darkSquare
 
-                        // Цвет последнего хода
+                        if (square in highlightedSquares) squareColor = theme.highlightColor
                         if (lastMove != null && (square == lastMove.first || square == lastMove.second)) {
                             squareColor = theme.lastMoveColor
-                        }
-
-                        // Цвет ВЫБРАННОЙ фигуры (приоритет выше)
-                        if (square in highlightedSquares) {
-                            squareColor = theme.highlightColor
                         }
 
                         drawRect(
@@ -175,7 +132,18 @@ fun ChessBoard(
                     }
                 }
 
-                // 2. Рисуем фигуры
+                // 2. РЎРўР Р•Р›РљР (РСЃРїРѕР»СЊР·СѓРµРј РѕР±С‰СѓСЋ С„СѓРЅРєС†РёСЋ РёР· ChessBoardArrow.kt)
+                // Р°) РџРѕСЃР»РµРґРЅРёР№ С…РѕРґ
+                if (lastMove != null) {
+                    val arrow = BoardArrow(lastMove.first, lastMove.second, Color(0x80FFD54F))
+                    drawBoardArrow(arrow, squareSize, flipped)
+                }
+                // Р±) РћСЃС‚Р°Р»СЊРЅС‹Рµ СЃС‚СЂРµР»РєРё (РїРѕРґСЃРєР°Р·РєРё, РѕС€РёР±РєРё)
+                arrows.forEach { arrow ->
+                    drawBoardArrow(arrow, squareSize, flipped)
+                }
+
+                // 3. Р¤РёРіСѓСЂС‹
                 for (rank in 0..7) {
                     for (file in 0..7) {
                         val actualRank = if (flipped) rank else 7 - rank
@@ -183,44 +151,32 @@ fun ChessBoard(
                         val square = Square.squareAt(actualRank * 8 + actualFile)
                         val piece = board.getPiece(square)
 
-                        val isAnimating = animatingPiece?.let {
-                            it.toSquare == square && animationProgress < 1f
+                        val isAnimating = animatingPieceState?.let { (_, move) ->
+                            move.second == square && animationProgress < 1f
                         } ?: false
 
                         if (piece != Piece.NONE && !isAnimating) {
-                            drawPiece(piece, file * squareSize, rank * squareSize, squareSize, context)
+                            ChessPieces.draw(this, piece, file * squareSize, rank * squareSize, squareSize, context)
                         }
                     }
                 }
 
-                // 3. Анимация
-                animatingPiece?.let { anim ->
-                    val fromFile = if (flipped) 7 - anim.fromSquare.file.ordinal else anim.fromSquare.file.ordinal
-                    val fromRank = if (flipped) anim.fromSquare.rank.ordinal else 7 - anim.fromSquare.rank.ordinal
-                    val toFile = if (flipped) 7 - anim.toSquare.file.ordinal else anim.toSquare.file.ordinal
-                    val toRank = if (flipped) anim.toSquare.rank.ordinal else 7 - anim.toSquare.rank.ordinal
+                // 4. РђРЅРёРјРёСЂСѓРµРјР°СЏ С„РёРіСѓСЂР°
+                animatingPieceState?.let { (piece, move) ->
+                    val fromSquare = move.first
+                    val toSquare = move.second
+
+                    val fromFile = if (flipped) 7 - fromSquare.file.ordinal else fromSquare.file.ordinal
+                    val fromRank = if (flipped) fromSquare.rank.ordinal else 7 - fromSquare.rank.ordinal
+                    val toFile = if (flipped) 7 - toSquare.file.ordinal else toSquare.file.ordinal
+                    val toRank = if (flipped) toSquare.rank.ordinal else 7 - toSquare.rank.ordinal
 
                     val currentX = (fromFile * squareSize) + ((toFile - fromFile) * squareSize * animationProgress)
                     val currentY = (fromRank * squareSize) + ((toRank - fromRank) * squareSize * animationProgress)
 
-                    drawPiece(anim.piece, currentX, currentY, squareSize, context)
+                    ChessPieces.draw(this, piece, currentX, currentY, squareSize, context)
                 }
-            } // end translate
+            }
         }
-
-        // Координаты (буквы и цифры)
-        // Можно добавить, если нужно, но для чистоты пока убрали, так как они могут перекрываться на маленьких экранах
     }
 }
-
-private fun DrawScope.drawPiece(
-    piece: Piece,
-    x: Float,
-    y: Float,
-    size: Float,
-    context: android.content.Context,
-    alpha: Float = 1f
-) {
-    ChessPieces.draw(this, piece, x, y, size, context, alpha)
-}
-

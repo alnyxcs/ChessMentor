@@ -1,7 +1,11 @@
-﻿package com.example.chessmentor.domain.usecase
+﻿// domain/usecase/GetTrainingExerciseUseCase.kt
+package com.example.chessmentor.domain.usecase
 
 import android.util.Log
 import com.example.chessmentor.domain.entity.Exercise
+import com.example.chessmentor.domain.entity.ExerciseSource
+import com.example.chessmentor.domain.entity.TacticalPattern
+import com.example.chessmentor.domain.entity.TacticalTheme
 import com.example.chessmentor.domain.repository.ExerciseRepository
 import com.example.chessmentor.domain.repository.MistakeRepository
 import com.example.chessmentor.domain.repository.UserRepository
@@ -15,7 +19,11 @@ class GetTrainingExerciseUseCase(
         private const val TAG = "GetTrainingExercise"
     }
 
-    data class Input(val userId: Long, val excludeExerciseId: Long = -1)
+    data class Input(
+        val userId: Long,
+        val excludeExerciseId: Long = -1,
+        val preferredPattern: String? = null  // Для кластеризации
+    )
 
     sealed class Result {
         data class Success(val exercise: Exercise) : Result()
@@ -29,37 +37,63 @@ class GetTrainingExerciseUseCase(
 
         Log.d(TAG, "Looking for exercise for user ${user.id}, excluding ${input.excludeExerciseId}")
 
-        // 1. Найти нерешённое упражнение (исключая текущее)
+        // 1. Если есть предпочтительный паттерн — ищем сначала его
+        if (input.preferredPattern != null) {
+            val patternExercise = exerciseRepository.findSimilarByPattern(
+                pattern = input.preferredPattern,
+                excludeId = input.excludeExerciseId,
+                minDifficulty = 0,
+                maxDifficulty = 100,
+                limit = 1
+            ).firstOrNull()
+
+            if (patternExercise != null) {
+                Log.d(TAG, "Found exercise with preferred pattern: ${patternExercise.id}")
+                exerciseRepository.incrementTimesShown(patternExercise.id!!)
+                return Result.Success(patternExercise)
+            }
+        }
+
+        // 2. Найти нерешённое упражнение по сложности
         var exercise = exerciseRepository.findSuitableExercise(
-            user.id!!, 
-            user.rating, 
+            user.id!!,
+            user.rating,
             excludeId = input.excludeExerciseId
         )
 
         if (exercise != null) {
             Log.d(TAG, "Found unsolved exercise: ${exercise.id}")
+            exerciseRepository.incrementTimesShown(exercise.id!!)
             return Result.Success(exercise)
         }
 
-        // 2. Если все решены, найти любое другое
+        // 3. Если все решены, найти любое другое
         exercise = exerciseRepository.findAnyExerciseExcept(input.excludeExerciseId)
         if (exercise != null) {
             Log.d(TAG, "All solved, returning random exercise: ${exercise.id}")
+            exerciseRepository.incrementTimesShown(exercise.id!!)
             return Result.Success(exercise)
         }
 
-        // 3. Создадим новое из последней ошибки
+        // 4. Создадим новое из последней ошибки
         val lastMistake = mistakeRepository.findByUserId(user.id).lastOrNull()
         if (lastMistake != null && !lastMistake.fenBefore.isNullOrEmpty()) {
             Log.d(TAG, "Creating new exercise from mistake")
+
             val newExercise = Exercise(
                 fenPosition = lastMistake.fenBefore,
-                prompt = "Найдите лучший ход в этой позиции.",
                 solutionMoves = listOf(lastMistake.bestMove),
+                tacticalPattern = TacticalPattern.MIXED,
+                patternClusterId = "MIXED_MEDIUM",
+                difficultyRating = 50,
+                patternFeatures = emptyList(),
+                theme = TacticalTheme.TACTIC,
                 rating = user.rating,
-                themeId = lastMistake.themeId,
-                sourceGameId = lastMistake.gameId
+                createdFrom = ExerciseSource.MISTAKE,
+                sourceGameId = lastMistake.gameId,
+                sourceMoveNumber = lastMistake.moveNumber
             )
+
             val savedExercise = exerciseRepository.saveExercise(newExercise)
             return Result.Success(savedExercise)
         }

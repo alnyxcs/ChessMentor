@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.chessmentor.di.AppContainer
 import com.example.chessmentor.presentation.ui.components.navigation.ChessMentorApp
-import com.example.chessmentor.presentation.ui.theme.ChessMentorTheme
+import com.example.chessmentor.presentation.ui.components.theme.ChessMentorTheme
 import com.example.chessmentor.presentation.viewmodel.GameViewModel
 import kotlinx.coroutines.launch
 

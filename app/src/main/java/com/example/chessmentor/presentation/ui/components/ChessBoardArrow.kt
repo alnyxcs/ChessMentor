@@ -1,141 +1,93 @@
-// presentation/ui/components/ChessBoardArrow.kt
 package com.example.chessmentor.presentation.ui.components
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.github.bhlangonijr.chesslib.Square
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Данные для отрисовки стрелки на доске
+ * Модель данных для стрелки.
+ * Используется и в Тренировке, и в Анализе.
  */
 data class BoardArrow(
     val from: Square,
     val to: Square,
-    val color: Color = Color(0xFF4CAF50),
-    val strokeWidth: Float = 10f
+    val color: Color
 )
 
 /**
- * Компонент для отрисовки стрелок на шахматной доске
+ * Вспомогательная функция парсинга UCI (e2e4) в стрелку.
  */
-@Composable
-fun ChessBoardWithArrows(
-    arrows: List<BoardArrow>,
-    boardSize: Dp,
-    isFlipped: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val squareSize = size.width / 8f
-
-        arrows.forEach { arrow ->
-            val fromFile = arrow.from.file.ordinal
-            val fromRank = arrow.from.rank.ordinal
-            val toFile = arrow.to.file.ordinal
-            val toRank = arrow.to.rank.ordinal
-
-            val (displayFromFile, displayFromRank) = if (isFlipped) {
-                Pair(7 - fromFile, fromRank)
-            } else {
-                Pair(fromFile, 7 - fromRank)
-            }
-
-            val (displayToFile, displayToRank) = if (isFlipped) {
-                Pair(7 - toFile, toRank)
-            } else {
-                Pair(toFile, 7 - toRank)
-            }
-
-            val fromX = (displayFromFile + 0.5f) * squareSize
-            val fromY = (displayFromRank + 0.5f) * squareSize
-            val toX = (displayToFile + 0.5f) * squareSize
-            val toY = (displayToRank + 0.5f) * squareSize
-
-            drawArrowOnCanvas(
-                start = Offset(fromX, fromY),
-                end = Offset(toX, toY),
-                color = arrow.color,
-                strokeWidth = arrow.strokeWidth
-            )
-        }
-    }
+fun parseBestMoveToArrow(uciMove: String?, color: Color = Color(0xAA4CAF50)): BoardArrow? {
+    if (uciMove == null || uciMove.length < 4) return null
+    return try {
+        val from = Square.fromValue(uciMove.substring(0, 2).uppercase())
+        val to = Square.fromValue(uciMove.substring(2, 4).uppercase())
+        BoardArrow(from, to, color)
+    } catch (e: Exception) { null }
 }
 
 /**
- * Отрисовка стрелки на canvas
+ * УНИВЕРСАЛЬНАЯ ФУНКЦИЯ РИСОВАНИЯ СТРЕЛКИ
+ * Рисует стрелку на любом Canvas (DrawScope).
  */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawArrowOnCanvas(
-    start: Offset,
-    end: Offset,
-    color: Color,
-    strokeWidth: Float
+fun DrawScope.drawBoardArrow(
+    arrow: BoardArrow,
+    squareSize: Float,
+    flipped: Boolean,
+    alpha: Float = 0.8f
 ) {
+    // 1. Вычисляем координаты клеток
+    val startFile = if (flipped) 7 - arrow.from.file.ordinal else arrow.from.file.ordinal
+    val startRank = if (flipped) arrow.from.rank.ordinal else 7 - arrow.from.rank.ordinal
+    val endFile = if (flipped) 7 - arrow.to.file.ordinal else arrow.to.file.ordinal
+    val endRank = if (flipped) arrow.to.rank.ordinal else 7 - arrow.to.rank.ordinal
+
+    // Центры клеток
+    val startX = startFile * squareSize + squareSize / 2
+    val startY = startRank * squareSize + squareSize / 2
+    val endX = endFile * squareSize + squareSize / 2
+    val endY = endRank * squareSize + squareSize / 2
+
+    // 2. Настройки стиля
+    val color = arrow.color
+    val strokeWidth = squareSize * 0.15f // Толщина зависит от размера клетки
+    val arrowHeadSize = squareSize * 0.45f // Размер наконечника
+
+    // 3. Математика поворота
+    val angle = atan2(endY - startY, endX - startX)
+
+    // Координаты "усов" наконечника
+    val arrowX1 = endX - arrowHeadSize * cos(angle - Math.PI / 6)
+    val arrowY1 = endY - arrowHeadSize * sin(angle - Math.PI / 6)
+    val arrowX2 = endX - arrowHeadSize * cos(angle + Math.PI / 6)
+    val arrowY2 = endY - arrowHeadSize * sin(angle + Math.PI / 6)
+
+    // Корректируем конец линии, чтобы она не торчала из-под острия
+    val lineEndX = endX - (arrowHeadSize * 0.6f) * cos(angle)
+    val lineEndY = endY - (arrowHeadSize * 0.6f) * sin(angle)
+
+    // 4. Рисуем линию
     drawLine(
         color = color,
-        start = start,
-        end = end,
+        start = Offset(startX, startY),
+        end = Offset(lineEndX.toFloat(), lineEndY.toFloat()),
         strokeWidth = strokeWidth,
-        alpha = 0.8f
+        cap = StrokeCap.Round,
+        alpha = alpha
     )
 
-    val angle = atan2(end.y - start.y, end.x - start.x)
-    val arrowHeadLength = strokeWidth * 3f
-    val arrowHeadAngle = Math.PI / 6
-
-    val arrowPoint1 = Offset(
-        x = end.x - arrowHeadLength * cos(angle - arrowHeadAngle).toFloat(),
-        y = end.y - arrowHeadLength * sin(angle - arrowHeadAngle).toFloat()
-    )
-
-    val arrowPoint2 = Offset(
-        x = end.x - arrowHeadLength * cos(angle + arrowHeadAngle).toFloat(),
-        y = end.y - arrowHeadLength * sin(angle + arrowHeadAngle).toFloat()
-    )
-
-    val arrowHeadPath = Path().apply {
-        moveTo(end.x, end.y)
-        lineTo(arrowPoint1.x, arrowPoint1.y)
-        lineTo(arrowPoint2.x, arrowPoint2.y)
+    // 5. Рисуем наконечник (треугольник)
+    val path = Path().apply {
+        moveTo(endX, endY)
+        lineTo(arrowX1.toFloat(), arrowY1.toFloat())
+        lineTo(arrowX2.toFloat(), arrowY2.toFloat())
         close()
     }
-
-    drawPath(
-        path = arrowHeadPath,
-        color = color,
-        alpha = 0.8f
-    )
-}
-
-/**
- * Парсинг UCI-хода в стрелку
- * Пример: "e2e4" -> BoardArrow(E2, E4)
- */
-fun parseBestMoveToArrow(
-    uciMove: String?,
-    color: Color = Color(0xFF4CAF50),
-    strokeWidth: Float = 10f
-): BoardArrow? {
-    if (uciMove == null || uciMove.length < 4) return null
-
-    return try {
-        val fromSquare = Square.fromValue(uciMove.substring(0, 2).uppercase())
-        val toSquare = Square.fromValue(uciMove.substring(2, 4).uppercase())
-
-        BoardArrow(
-            from = fromSquare,
-            to = toSquare,
-            color = color,
-            strokeWidth = strokeWidth
-        )
-    } catch (e: Exception) {
-        null
-    }
+    drawPath(path, color, alpha = alpha)
 }

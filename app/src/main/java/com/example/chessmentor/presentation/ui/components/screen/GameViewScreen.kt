@@ -1,4 +1,3 @@
-// presentation/ui/screen/GameViewScreen.kt
 package com.example.chessmentor.presentation.ui.components.screen
 
 import android.util.Log
@@ -111,7 +110,6 @@ private fun GameViewScreenContent(
     DisposableEffect(Unit) {
         onDispose {
             Log.d(TAG, "Disposing BoardViewModel")
-            boardViewModel.soundManager?.release()
         }
     }
 
@@ -137,12 +135,13 @@ private fun GameViewScreenContent(
     val totalMoves = moves.size
     val hasRealEvaluations = boardViewModel.hasRealEvaluations()
 
-    // ✅ Автоматически показываем стрелку для ошибок
-    val bestMoveArrow = remember(currentAnalyzedMove) {
+    // Формируем список стрелок
+    val arrowsList = remember(currentAnalyzedMove) {
         if (currentAnalyzedMove?.isMistake() == true && currentAnalyzedMove.bestMove != null) {
-            parseBestMoveToArrow(currentAnalyzedMove.bestMove)
+            val arrow = parseBestMoveToArrow(currentAnalyzedMove.bestMove)
+            if (arrow != null) listOf(arrow) else emptyList()
         } else {
-            null
+            emptyList()
         }
     }
 
@@ -152,26 +151,19 @@ private fun GameViewScreenContent(
             .padding(paddingValues)
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // 1. Evaluation Bar
         EvaluationBarWithIndicator(
             evaluation = currentEvaluation,
             hasRealData = hasRealEvaluations,
-            modifier = Modifier.padding(
-                start = 12.dp,
-                end = 12.dp,
-                top = 8.dp,
-                bottom = 4.dp
-            )
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
         )
 
-        // 2. Доска со значком качества и стрелкой
         GameBoardWithBadgeAndArrow(
             board = board,
             currentMistake = currentMistake,
             currentAnalyzedMove = currentAnalyzedMove,
             highlightedSquares = highlightedSquares,
             lastMove = lastMove,
-            bestMoveArrow = bestMoveArrow,
+            arrows = arrowsList,
             isFlipped = game.playerColor == ChessColor.BLACK,
             theme = selectedTheme,
             modifier = Modifier
@@ -182,7 +174,6 @@ private fun GameViewScreenContent(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 3. Карточка анализа
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -199,7 +190,6 @@ private fun GameViewScreenContent(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // 4. Список ходов
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.fillMaxWidth()
@@ -208,17 +198,13 @@ private fun GameViewScreenContent(
                 moves = moves,
                 currentMoveIndex = currentMoveIndex,
                 mistakes = mistakes.toList(),
-                onMoveClick = { index ->
-                    Log.d(TAG, "Move clicked: $index")
-                    boardViewModel.goToMove(index)
-                },
+                onMoveClick = { index -> boardViewModel.goToMove(index) },
                 modifier = Modifier
                     .padding(vertical = 6.dp)
                     .height(36.dp)
             )
         }
 
-        // 5. Навигация
         NavigationBar(
             currentMoveIndex = currentMoveIndex,
             totalMoves = totalMoves,
@@ -230,8 +216,6 @@ private fun GameViewScreenContent(
     }
 }
 
-// ==================== КОМПОНЕНТЫ ====================
-
 @Composable
 private fun EvaluationBarWithIndicator(
     evaluation: Int,
@@ -239,11 +223,7 @@ private fun EvaluationBarWithIndicator(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        EvaluationBar(
-            evaluation = evaluation,
-            modifier = Modifier.fillMaxWidth()
-        )
-
+        EvaluationBar(evaluation = evaluation, modifier = Modifier.fillMaxWidth())
         if (!hasRealData) {
             Text(
                 text = "⚠ Приблизительные данные",
@@ -262,7 +242,7 @@ private fun GameBoardWithBadgeAndArrow(
     currentAnalyzedMove: AnalyzedMove?,
     highlightedSquares: Set<Square>,
     lastMove: Pair<Square, Square>?,
-    bestMoveArrow: BoardArrow?,
+    arrows: List<BoardArrow>,
     isFlipped: Boolean,
     theme: BoardTheme,
     modifier: Modifier = Modifier
@@ -270,10 +250,10 @@ private fun GameBoardWithBadgeAndArrow(
     BoxWithConstraints(modifier = modifier) {
         val boardSize = this.maxWidth
 
-        // Основная доска
         ChessBoard(
             board = board,
             highlightedSquares = highlightedSquares,
+            arrows = arrows,
             lastMove = lastMove,
             modifier = Modifier.fillMaxSize(),
             flipped = isFlipped,
@@ -281,36 +261,14 @@ private fun GameBoardWithBadgeAndArrow(
             animateMove = true
         )
 
-        // ✅ Стрелка лучшего хода (показывается автоматически)
-        if (bestMoveArrow != null) {
-            ChessBoardWithArrows(
-                arrows = listOf(bestMoveArrow),
-                boardSize = boardSize,
-                isFlipped = isFlipped,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Значок качества хода
         if (lastMove != null) {
             val quality = currentAnalyzedMove?.quality
-            val shouldShowBadge = quality != null && quality in listOf(
-                MoveQuality.BRILLIANT,
-                MoveQuality.GREAT_MOVE,
-                MoveQuality.BEST_MOVE,
-                MoveQuality.BLUNDER,
-                MoveQuality.MISTAKE,
-                MoveQuality.INACCURACY
-            )
-
-            if (shouldShowBadge) {
-                val targetSquare = lastMove.second
-                val badgeOffset = calculateBadgeOffset(
-                    square = targetSquare,
-                    isFlipped = isFlipped,
-                    boardSize = boardSize
+            if (quality != null && quality in listOf(
+                    MoveQuality.BRILLIANT, MoveQuality.GREAT_MOVE, MoveQuality.BEST_MOVE,
+                    MoveQuality.BLUNDER, MoveQuality.MISTAKE, MoveQuality.INACCURACY
                 )
-
+            ) {
+                val badgeOffset = calculateBadgeOffset(lastMove.second, isFlipped, boardSize)
                 MoveQualityBadge(
                     mistakeType = currentMistake?.mistakeType,
                     moveQuality = quality,
@@ -324,27 +282,13 @@ private fun GameBoardWithBadgeAndArrow(
     }
 }
 
-private fun calculateBadgeOffset(
-    square: Square,
-    isFlipped: Boolean,
-    boardSize: Dp
-): Pair<Dp, Dp> {
+private fun calculateBadgeOffset(square: Square, isFlipped: Boolean, boardSize: Dp): Pair<Dp, Dp> {
     val file = square.file.ordinal
     val rank = square.rank.ordinal
-
-    val (displayFile, displayRank) = if (isFlipped) {
-        Pair(7 - file, rank)
-    } else {
-        Pair(file, 7 - rank)
-    }
-
-    val squareSize = boardSize / 8
+    val (dFile, dRank) = if (isFlipped) Pair(7 - file, rank) else Pair(file, 7 - rank)
+    val sqSize = boardSize / 8
     val badgeSize = 28.dp
-
-    val offsetX = squareSize * displayFile + squareSize - badgeSize - 2.dp
-    val offsetY = squareSize * displayRank + 2.dp
-
-    return Pair(offsetX, offsetY)
+    return Pair(sqSize * dFile + sqSize - badgeSize - 2.dp, sqSize * dRank + 2.dp)
 }
 
 @Composable
@@ -356,97 +300,41 @@ private fun MoveAnalysisCard(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-    ) {
+    Box(modifier = modifier.fillMaxSize().verticalScroll(scrollState)) {
         when {
-            // Ошибка
-            currentMistake != null -> {
-                CompactMistakeCard(mistake = currentMistake)
-            }
-
-            // Хороший ход
-            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() -> {
-                GoodMoveCard(analyzedMove = currentAnalyzedMove)
-            }
-
-            // Обычная позиция
-            else -> {
-                CompactPositionCard(
-                    evaluation = currentEvaluation,
-                    playerColor = playerColor
-                )
-            }
+            currentMistake != null -> CompactMistakeCard(mistake = currentMistake)
+            currentAnalyzedMove != null && currentAnalyzedMove.isGoodMove() -> GoodMoveCard(analyzedMove = currentAnalyzedMove)
+            else -> CompactPositionCard(evaluation = currentEvaluation, playerColor = playerColor)
         }
     }
 }
 
 @Composable
-private fun GoodMoveCard(
-    analyzedMove: AnalyzedMove,
-    modifier: Modifier = Modifier
-) {
+private fun GoodMoveCard(analyzedMove: AnalyzedMove, modifier: Modifier = Modifier) {
     val quality = analyzedMove.quality
-    val backgroundColor = quality.getColor().copy(alpha = 0.1f)
-
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+        colors = CardDefaults.cardColors(containerColor = quality.getColor().copy(alpha = 0.1f))
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = quality.getEmoji(),
-                style = MaterialTheme.typography.headlineLarge
-            )
-
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text = quality.getEmoji(), style = MaterialTheme.typography.headlineLarge)
             Spacer(modifier = Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = quality.getDisplayName(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = quality.getColor()
-                )
-
-                Text(
-                    text = analyzedMove.san,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                analyzedMove.comment?.let { comment ->
+                Text(text = quality.getDisplayName(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = quality.getColor())
+                Text(text = analyzedMove.san, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                analyzedMove.comment?.let {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = comment,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
-            val evalChange = analyzedMove.evalChange
-            if (evalChange != 0) {
+            if (analyzedMove.evalChange != 0) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = if (evalChange > 0) "+%.1f".format(evalChange / 100.0) else "%.1f".format(evalChange / 100.0),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (evalChange > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        text = if (analyzedMove.evalChange > 0) "+%.1f".format(analyzedMove.evalChange / 100.0) else "%.1f".format(analyzedMove.evalChange / 100.0),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                        color = if (analyzedMove.evalChange > 0) Color(0xFF4CAF50) else Color(0xFFF44336)
                     )
-                    Text(
-                        text = "пешек",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(text = "пешек", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -462,94 +350,24 @@ private fun NavigationBar(
     onGoToNext: () -> Unit,
     onGoToEnd: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
-    ) {
+    Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onGoToStart,
-                enabled = currentMoveIndex > -1
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FirstPage,
-                    contentDescription = "В начало",
-                    modifier = Modifier.size(28.dp),
-                    tint = if (currentMoveIndex > -1) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
+            IconButton(onClick = onGoToStart, enabled = currentMoveIndex > -1) {
+                Icon(Icons.Default.FirstPage, "В начало")
             }
-
-            IconButton(
-                onClick = onGoToPrevious,
-                enabled = currentMoveIndex > -1
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Назад",
-                    modifier = Modifier.size(28.dp),
-                    tint = if (currentMoveIndex > -1) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
+            IconButton(onClick = onGoToPrevious, enabled = currentMoveIndex > -1) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
             }
-
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                shape = MaterialTheme.shapes.small
-            ) {
-                Text(
-                    text = "${currentMoveIndex + 1}/$totalMoves",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+            Text("${currentMoveIndex + 1}/$totalMoves", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            IconButton(onClick = onGoToNext, enabled = currentMoveIndex < totalMoves - 1) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, "Вперёд")
             }
-
-            IconButton(
-                onClick = onGoToNext,
-                enabled = currentMoveIndex < totalMoves - 1
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Вперёд",
-                    modifier = Modifier.size(28.dp),
-                    tint = if (currentMoveIndex < totalMoves - 1) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
-            }
-
-            IconButton(
-                onClick = onGoToEnd,
-                enabled = currentMoveIndex < totalMoves - 1
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LastPage,
-                    contentDescription = "В конец",
-                    modifier = Modifier.size(28.dp),
-                    tint = if (currentMoveIndex < totalMoves - 1) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
+            IconButton(onClick = onGoToEnd, enabled = currentMoveIndex < totalMoves - 1) {
+                Icon(Icons.Default.LastPage, "В конец")
             }
         }
     }

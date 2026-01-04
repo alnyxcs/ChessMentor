@@ -1,4 +1,3 @@
-// data/local/AppDatabase.kt
 package com.example.chessmentor.data.local
 
 import android.content.Context
@@ -9,17 +8,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.example.chessmentor.data.local.dao.AnalyzedMoveDao
-import com.example.chessmentor.data.local.dao.ExerciseDao
-import com.example.chessmentor.data.local.dao.GameDao
-import com.example.chessmentor.data.local.dao.MistakeDao
-import com.example.chessmentor.data.local.dao.UserDao
-import com.example.chessmentor.domain.entity.AnalyzedMove
-import com.example.chessmentor.domain.entity.Exercise
-import com.example.chessmentor.domain.entity.ExerciseAttempt
-import com.example.chessmentor.domain.entity.Game
-import com.example.chessmentor.domain.entity.Mistake
-import com.example.chessmentor.domain.entity.User
+import com.example.chessmentor.data.local.dao.*
+import com.example.chessmentor.domain.entity.*
 import com.example.chessmentor.data.local.TypeConverters as MyConverters
 
 @Database(
@@ -31,7 +21,7 @@ import com.example.chessmentor.data.local.TypeConverters as MyConverters
         ExerciseAttempt::class,
         AnalyzedMove::class
     ],
-    version = 4,
+    version = 5, // ✅ Версия 5
     exportSchema = false
 )
 @TypeConverters(MyConverters::class)
@@ -52,13 +42,8 @@ abstract class AppDatabase : RoomDatabase() {
 
         // ==================== МИГРАЦИИ ====================
 
-        /**
-         * Миграция 2 → 3: Добавление таблицы analyzed_moves
-         */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                Log.d(TAG, "Migrating from version 2 to 3: Adding analyzed_moves table")
-
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS analyzed_moves (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,27 +61,13 @@ abstract class AppDatabase : RoomDatabase() {
                         FOREIGN KEY (gameId) REFERENCES games(id) ON DELETE CASCADE
                     )
                 """.trimIndent())
-
-                database.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_analyzed_moves_gameId ON analyzed_moves(gameId)"
-                )
-
-                Log.d(TAG, "Migration 2 → 3 completed")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_analyzed_moves_gameId ON analyzed_moves(gameId)")
             }
         }
 
-        /**
-         * Миграция 3 → 4: Добавление колонки evaluationsJson в games
-         */
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                Log.d(TAG, "Migrating from version 3 to 4: Adding evaluationsJson column")
-
-                database.execSQL(
-                    "ALTER TABLE games ADD COLUMN evaluationsJson TEXT DEFAULT NULL"
-                )
-
-                Log.d(TAG, "Migration 3 → 4 completed")
+                database.execSQL("ALTER TABLE games ADD COLUMN evaluationsJson TEXT DEFAULT NULL")
             }
         }
 
@@ -112,13 +83,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    // ✅ ИСПРАВЛЕНО: Миграции для версий 2→3 и 3→4
-                    .addMigrations(
-                        MIGRATION_2_3,
-                        MIGRATION_3_4
-                    )
-                    // ✅ ИСПРАВЛЕНО: Destructive только для версии 1
-                    .fallbackToDestructiveMigrationFrom(1)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    // ✅ Разрешаем деструктивную миграцию, если автоматическая не сработает
+                    .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback())
                     .build()
 

@@ -1,4 +1,5 @@
-﻿package com.example.chessmentor.data.repository.room
+﻿// data/repository/room/RoomExerciseRepository.kt
+package com.example.chessmentor.data.repository.room
 
 import com.example.chessmentor.data.local.dao.ExerciseDao
 import com.example.chessmentor.domain.entity.Exercise
@@ -19,23 +20,26 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
         )
     }
 
-    override suspend fun findByTheme(themeId: Long): List<Exercise> = 
-        exerciseDao.findByTheme(themeId)
-    
+    override suspend fun findByTheme(theme: String): List<Exercise> =
+        exerciseDao.findByTheme(theme)
+
+    override suspend fun findByPattern(pattern: String): List<Exercise> =
+        exerciseDao.findByPattern(pattern)
+
     override suspend fun findBySourceGameAndMove(gameId: Long, moveNumber: Int): Exercise? {
         return exerciseDao.findBySourceGame(gameId)
     }
-    
-    override suspend fun findByUserId(userId: Long): List<Exercise> = 
+
+    override suspend fun findByUserId(userId: Long): List<Exercise> =
         exerciseDao.findByUserId(userId)
-    
+
     override suspend fun findAnyExerciseExcept(excludeId: Long): Exercise? =
         exerciseDao.findAnyExerciseExcept(excludeId)
-    
+
     override suspend fun findByFen(fen: String): Exercise? = exerciseDao.findByFen(fen)
-    
+
     override suspend fun deleteDuplicates() = exerciseDao.deleteDuplicates()
-    
+
     override suspend fun countExercises(): Int = exerciseDao.countExercises()
 
     override suspend fun saveExercise(exercise: Exercise): Exercise {
@@ -48,8 +52,42 @@ class RoomExerciseRepository(private val exerciseDao: ExerciseDao) : ExerciseRep
         return attempt.copy(id = id)
     }
 
-    override suspend fun getAttemptsByUserId(userId: Long): List<ExerciseAttempt> = 
+    override suspend fun getAttemptsByUserId(userId: Long): List<ExerciseAttempt> =
         exerciseDao.getAttemptsByUserId(userId)
+
+    // ============================================================
+    // НОВЫЕ МЕТОДЫ ДЛЯ КЛАСТЕРИЗАЦИИ
+    // ============================================================
+
+    override suspend fun findByCluster(
+        clusterId: String,
+        excludeId: Long,
+        limit: Int
+    ): List<Exercise> = exerciseDao.findByCluster(clusterId, excludeId, limit)
+
+    override suspend fun findSimilarByPattern(
+        pattern: String,
+        excludeId: Long,
+        minDifficulty: Int,
+        maxDifficulty: Int,
+        limit: Int
+    ): List<Exercise> = exerciseDao.findSimilarByPattern(
+        pattern, excludeId, minDifficulty, maxDifficulty, limit
+    )
+
+    override suspend fun findForMistakeRepetition(
+        userId: Long,
+        pattern: String,
+        difficulty: Int,
+        excludeId: Long,
+        limit: Int
+    ): List<Exercise> = exerciseDao.findForMistakeRepetition(
+        userId, pattern, difficulty, excludeId, limit
+    )
+
+    override suspend fun incrementTimesShown(exerciseId: Long) =
+        exerciseDao.incrementTimesShown(exerciseId)
+
+    override suspend fun incrementTimesSolved(exerciseId: Long) =
+        exerciseDao.incrementTimesSolved(exerciseId)
 }
-
-

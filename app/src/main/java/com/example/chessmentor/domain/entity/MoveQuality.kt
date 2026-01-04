@@ -1,5 +1,4 @@
-// domain/entity/MoveQuality.kt
-package com.example.chessmentor.domain.entity
+﻿package com.example.chessmentor.domain.entity
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
